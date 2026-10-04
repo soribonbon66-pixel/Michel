@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Reggaeton Master DSP</string>
+    <string name="audio_mastering_suite">Mastering &amp; DSP Suite</string>
+    <string name="load_track">Cargar Pista</string>
+    <string name="load_demo_dembow">Cargar Beat Urbano Demo</string>
+    <string name="pre_analysis">Análisis Espectral &amp; LUFS</string>
+    <string name="ab_compare">Comparación A/B</string>
+    <string name="bypass_off">MASTER (ON)</string>
+    <string name="bypass_on">RAW (BYPASS)</string>
+    <string name="export_wav">Renderizar &amp; Descargar WAV</string>
+    <string name="technical_report">Informe Técnico de Masterización</string>
+</resources>
