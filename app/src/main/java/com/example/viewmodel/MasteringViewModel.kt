@@ -99,18 +99,19 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(
                     isProcessing = true,
-                    statusMessage = "Decodificando audio PCM..."
+                    statusMessage = "Cargando y decodificando audio..."
                 )
             }
             audioPlayer?.pause()
             try {
                 val track = AudioDecoder.decodeFromUri(context, uri)
                 applyTrackAndMaster(track, _uiState.value.selectedPreset, autoCalibrate = true)
-            } catch (e: Exception) {
+            } catch (t: Throwable) {
+                t.printStackTrace()
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        statusMessage = "Error al abrir archivo: ${e.localizedMessage ?: "Formato desconocido"}"
+                        statusMessage = "Error al abrir audio: ${t.localizedMessage ?: t.javaClass.simpleName}"
                     )
                 }
             }
@@ -127,10 +128,20 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             }
             audioPlayer?.pause()
             val preset = if (isOldSchool) PresetType.OLD_SCHOOL_PERREO else PresetType.DEMBOW_OSCURO
-            val demoTrack = withContext(Dispatchers.Default) {
-                AudioDecoder.generateUrbanDemoBeat(isOldSchool = isOldSchool, durationSeconds = 10.0f)
+            try {
+                val demoTrack = withContext(Dispatchers.Default) {
+                    AudioDecoder.generateUrbanDemoBeat(isOldSchool = isOldSchool, durationSeconds = 10.0f)
+                }
+                applyTrackAndMaster(demoTrack, preset, autoCalibrate = true)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                _uiState.update {
+                    it.copy(
+                        isProcessing = false,
+                        statusMessage = "Error al sintetizar demo: ${t.localizedMessage ?: t.javaClass.simpleName}"
+                    )
+                }
             }
-            applyTrackAndMaster(demoTrack, preset, autoCalibrate = true)
         }
     }
 
@@ -139,42 +150,52 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
         preset: PresetType,
         autoCalibrate: Boolean
     ) = withContext(Dispatchers.Default) {
-        _uiState.update {
-            it.copy(
-                isProcessing = true,
-                statusMessage = "Analizando sonoridad LUFS & balance espectral..."
-            )
-        }
-        val preAnalysis = dspEngine.analyzeTrack(track)
+        try {
+            _uiState.update {
+                it.copy(
+                    isProcessing = true,
+                    statusMessage = "Analizando sonoridad LUFS & balance espectral..."
+                )
+            }
+            val preAnalysis = dspEngine.analyzeTrack(track)
 
-        val settings = if (autoCalibrate) {
-            _uiState.update { it.copy(statusMessage = "Autocalibrando parámetros y umbrales para ${preset.title}...") }
-            dspEngine.autoCalibrateSettings(preset, preAnalysis)
-        } else {
-            _uiState.value.settings.copy(presetType = preset)
-        }
+            val settings = if (autoCalibrate) {
+                _uiState.update { it.copy(statusMessage = "Autocalibrando parámetros y umbrales para ${preset.title}...") }
+                dspEngine.autoCalibrateSettings(preset, preAnalysis)
+            } else {
+                _uiState.value.settings.copy(presetType = preset)
+            }
 
-        _uiState.update { it.copy(statusMessage = "Renderizando cadena DSP (EQ, saturador y limitador)...") }
-        val (masteredTrack, result) = dspEngine.processTrack(track, settings) { progress ->
-            _uiState.update { it.copy(processingProgress = progress) }
-        }
+            _uiState.update { it.copy(statusMessage = "Renderizando cadena DSP (EQ, saturador y limitador)...") }
+            val (masteredTrack, result) = dspEngine.processTrack(track, settings) { progress ->
+                _uiState.update { it.copy(processingProgress = progress) }
+            }
 
-        audioPlayer?.setTracks(track, masteredTrack)
-        audioPlayer?.isBypassActive = _uiState.value.isBypassActive
+            audioPlayer?.setTracks(track, masteredTrack)
+            audioPlayer?.isBypassActive = _uiState.value.isBypassActive
 
-        _uiState.update {
-            it.copy(
-                rawTrack = track,
-                masteredTrack = masteredTrack,
-                rawAnalysis = preAnalysis,
-                masteredAnalysis = result.masteredAnalysis,
-                selectedPreset = preset,
-                settings = settings,
-                result = result,
-                isProcessing = false,
-                processingProgress = 1.0f,
-                statusMessage = "Master listo: ${"%.1f".format(result.masteredAnalysis.integratedLufs)} LUFS (Techo: ${settings.limiterCeilingDb} dBTP)"
-            )
+            _uiState.update {
+                it.copy(
+                    rawTrack = track,
+                    masteredTrack = masteredTrack,
+                    rawAnalysis = preAnalysis,
+                    masteredAnalysis = result.masteredAnalysis,
+                    selectedPreset = preset,
+                    settings = settings,
+                    result = result,
+                    isProcessing = false,
+                    processingProgress = 1.0f,
+                    statusMessage = "Master listo: ${"%.1f".format(result.masteredAnalysis.integratedLufs)} LUFS (Techo: ${settings.limiterCeilingDb} dBTP)"
+                )
+            }
+        } catch (t: Throwable) {
+            t.printStackTrace()
+            _uiState.update {
+                it.copy(
+                    isProcessing = false,
+                    statusMessage = "Error en procesamiento DSP: ${t.localizedMessage ?: t.javaClass.simpleName}"
+                )
+            }
         }
     }
 
