@@ -47,6 +47,7 @@ data class StudioUiState(
     val livePeakL: Float = 0.0f,
     val livePeakR: Float = 0.0f,
     val isLooping: Boolean = true,
+    val selectedCompressorBandId: String = "low",
     val exportState: ExportState = ExportState.Idle,
     val activeTab: StudioTab = StudioTab.SPECTRUM,
     val showReportDialog: Boolean = false,
@@ -215,6 +216,60 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setActiveTab(tab: StudioTab) {
         _uiState.update { it.copy(activeTab = tab) }
+    }
+
+    fun selectCompressorBand(bandId: String) {
+        _uiState.update { it.copy(selectedCompressorBandId = bandId) }
+    }
+
+    fun updateCompressorGain(bandId: String, gainDb: Float) {
+        val clamped = (Math.round(gainDb.coerceIn(-12.0f, 12.0f) * 10f) / 10f)
+        val curSettings = _uiState.value.settings
+        val updatedBands = curSettings.multibandBands.map { band ->
+            if (band.id == bandId) band.copy(gainDb = clamped) else band
+        }
+        reprocessWithSettings(curSettings.copy(multibandBands = updatedBands))
+    }
+
+    fun updateCompressorThreshold(bandId: String, thresholdDb: Float) {
+        val clamped = (Math.round(thresholdDb.coerceIn(-40.0f, 0.0f) * 10f) / 10f)
+        val curSettings = _uiState.value.settings
+        val updatedBands = curSettings.multibandBands.map { band ->
+            if (band.id == bandId) band.copy(thresholdDb = clamped) else band
+        }
+        reprocessWithSettings(curSettings.copy(multibandBands = updatedBands))
+    }
+
+    fun updateCompressorRatio(bandId: String, ratio: Float) {
+        val clamped = (Math.round(ratio.coerceIn(1.0f, 20.0f) * 10f) / 10f)
+        val curSettings = _uiState.value.settings
+        val updatedBands = curSettings.multibandBands.map { band ->
+            if (band.id == bandId) band.copy(ratio = clamped) else band
+        }
+        reprocessWithSettings(curSettings.copy(multibandBands = updatedBands))
+    }
+
+    fun nudgeCompressorGain(bandId: String, deltaDb: Float) {
+        val band = _uiState.value.settings.multibandBands.find { it.id == bandId } ?: return
+        updateCompressorGain(bandId, band.gainDb + deltaDb)
+    }
+
+    fun nudgeCompressorThreshold(bandId: String, deltaDb: Float) {
+        val band = _uiState.value.settings.multibandBands.find { it.id == bandId } ?: return
+        updateCompressorThreshold(bandId, band.thresholdDb + deltaDb)
+    }
+
+    fun nudgeCompressorRatio(bandId: String, deltaRatio: Float) {
+        val band = _uiState.value.settings.multibandBands.find { it.id == bandId } ?: return
+        updateCompressorRatio(bandId, band.ratio + deltaRatio)
+    }
+
+    fun toggleCompressorBandBypass(bandId: String) {
+        val curSettings = _uiState.value.settings
+        val updatedBands = curSettings.multibandBands.map { band ->
+            if (band.id == bandId) band.copy(isBypassed = !band.isBypassed) else band
+        }
+        reprocessWithSettings(curSettings.copy(multibandBands = updatedBands))
     }
 
     fun toggleReportDialog(show: Boolean) {

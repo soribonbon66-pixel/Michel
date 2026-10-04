@@ -3,6 +3,8 @@ package com.example
 import com.example.dsp.*
 import com.example.model.AudioTrackData
 import com.example.model.PresetType
+import com.example.viewmodel.AudioProcessingViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.*
 import org.junit.Test
 import kotlin.math.abs
@@ -56,5 +58,51 @@ class ExampleUnitTest {
         assertTrue(settings.isAutoCalibrated)
         assertTrue(settings.autoAdjustmentLog.isNotEmpty())
         assertTrue(settings.makeupGainDb > 0f)
+    }
+
+    @Test
+    fun testAudioProcessingViewModelPresetAndBands() {
+        val viewModel = AudioProcessingViewModel()
+        assertEquals(PresetType.OLD_SCHOOL_PERREO, viewModel.state.value.selectedPreset)
+
+        // Select Dembow Oscuro
+        viewModel.selectPreset(PresetType.DEMBOW_OSCURO, autoCalibrate = false)
+        assertEquals(PresetType.DEMBOW_OSCURO, viewModel.state.value.selectedPreset)
+        assertEquals(-8.0f, viewModel.state.value.targetLufs, 0.01f)
+
+        // Update band gain
+        viewModel.updateBandGain("sub", 5.5f)
+        assertEquals(5.5f, viewModel.state.value.eqSettings.subBassBand.gainDb, 0.01f)
+
+        // Update limiter ceiling
+        viewModel.setLimiterCeiling(-0.15f)
+        assertEquals(-0.15f, viewModel.state.value.limiterCeilingDb, 0.01f)
+    }
+
+    @Test
+    fun testMultibandCompressorHighPrecisionControls() {
+        val viewModel = AudioProcessingViewModel()
+        val lowBand = viewModel.state.value.multibandBands.first { it.id == "low" }
+
+        // Test high-precision gain setting
+        viewModel.updateCompressorGain("low", 3.2f)
+        assertEquals(3.2f, viewModel.state.value.multibandBands.first { it.id == "low" }.gainDb, 0.01f)
+
+        // Test micro-stepping nudge
+        viewModel.nudgeCompressorGain("low", 0.1f)
+        assertEquals(3.3f, viewModel.state.value.multibandBands.first { it.id == "low" }.gainDb, 0.01f)
+
+        // Test threshold control
+        viewModel.updateCompressorThreshold("low", -18.5f)
+        assertEquals(-18.5f, viewModel.state.value.multibandBands.first { it.id == "low" }.thresholdDb, 0.01f)
+
+        // Test ratio control
+        viewModel.updateCompressorRatio("low", 4.2f)
+        assertEquals(4.2f, viewModel.state.value.multibandBands.first { it.id == "low" }.ratio, 0.01f)
+
+        // Test band bypass toggle
+        assertFalse(viewModel.state.value.multibandBands.first { it.id == "low" }.isBypassed)
+        viewModel.toggleCompressorBandBypass("low")
+        assertTrue(viewModel.state.value.multibandBands.first { it.id == "low" }.isBypassed)
     }
 }

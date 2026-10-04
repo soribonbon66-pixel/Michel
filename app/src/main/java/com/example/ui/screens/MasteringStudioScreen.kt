@@ -277,9 +277,14 @@ fun MasteringStudioScreen(
                 modifier = Modifier.testTag("ab_switch_container")
             )
 
-            // 3. Tab Switcher (Spectrum Visualizer vs EQ Curve)
+            // 3. Tab Switcher (Spectrum Visualizer vs EQ Curve vs Multiband Compressor)
             TabRow(
-                selectedTabIndex = if (uiState.activeTab == StudioTab.SPECTRUM) 0 else 1,
+                selectedTabIndex = when (uiState.activeTab) {
+                    StudioTab.SPECTRUM -> 0
+                    StudioTab.EQ_CURVE -> 1
+                    StudioTab.DYNAMICS -> 2
+                    StudioTab.REPORT -> 0
+                },
                 containerColor = Color(0xFF0D131C),
                 contentColor = Color(0xFF00E5FF),
                 divider = {},
@@ -290,31 +295,55 @@ fun MasteringStudioScreen(
                 Tab(
                     selected = uiState.activeTab == StudioTab.SPECTRUM,
                     onClick = { viewModel.setActiveTab(StudioTab.SPECTRUM) },
-                    text = { Text("ESPECTRO RTA", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("ESPECTRO RTA", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                 )
                 Tab(
                     selected = uiState.activeTab == StudioTab.EQ_CURVE,
                     onClick = { viewModel.setActiveTab(StudioTab.EQ_CURVE) },
-                    text = { Text("CURVA EQ (5 BANDAS)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("CURVA EQ (5B)", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = uiState.activeTab == StudioTab.DYNAMICS,
+                    onClick = { viewModel.setActiveTab(StudioTab.DYNAMICS) },
+                    text = { Text("COMPRESOR MB", fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                 )
             }
 
             // Visualizer view
-            if (uiState.activeTab == StudioTab.SPECTRUM) {
-                SpectrumVisualizer(
-                    rawAnalysis = uiState.rawAnalysis,
-                    masteredAnalysis = uiState.masteredAnalysis,
-                    isBypassActive = uiState.isBypassActive,
-                    livePeak = maxOf(uiState.livePeakL, uiState.livePeakR),
-                    isPlaying = uiState.isPlaying,
-                    modifier = Modifier.testTag("spectrum_visualizer")
-                )
-            } else {
-                ParametricEqCurve(
-                    settings = uiState.settings,
-                    onBandGainChanged = { id, gain -> viewModel.updateEqBandGain(id, gain) },
-                    modifier = Modifier.testTag("parametric_eq_curve")
-                )
+            when (uiState.activeTab) {
+                StudioTab.SPECTRUM -> {
+                    SpectrumVisualizer(
+                        rawAnalysis = uiState.rawAnalysis,
+                        masteredAnalysis = uiState.masteredAnalysis,
+                        isBypassActive = uiState.isBypassActive,
+                        livePeak = maxOf(uiState.livePeakL, uiState.livePeakR),
+                        isPlaying = uiState.isPlaying,
+                        modifier = Modifier.testTag("spectrum_visualizer")
+                    )
+                }
+                StudioTab.EQ_CURVE -> {
+                    ParametricEqCurve(
+                        settings = uiState.settings,
+                        onBandGainChanged = { id, gain -> viewModel.updateEqBandGain(id, gain) },
+                        modifier = Modifier.testTag("parametric_eq_curve")
+                    )
+                }
+                StudioTab.DYNAMICS -> {
+                    MultibandCompressorUi(
+                        bands = uiState.settings.multibandBands,
+                        selectedBandId = uiState.selectedCompressorBandId,
+                        onSelectBand = { viewModel.selectCompressorBand(it) },
+                        onGainChanged = { id, gain -> viewModel.updateCompressorGain(id, gain) },
+                        onThresholdChanged = { id, th -> viewModel.updateCompressorThreshold(id, th) },
+                        onRatioChanged = { id, r -> viewModel.updateCompressorRatio(id, r) },
+                        onNudgeGain = { id, delta -> viewModel.nudgeCompressorGain(id, delta) },
+                        onNudgeThreshold = { id, delta -> viewModel.nudgeCompressorThreshold(id, delta) },
+                        onNudgeRatio = { id, delta -> viewModel.nudgeCompressorRatio(id, delta) },
+                        onToggleBypass = { viewModel.toggleCompressorBandBypass(it) },
+                        modifier = Modifier.testTag("multiband_compressor_view")
+                    )
+                }
+                else -> {}
             }
 
             // 4. Studio Meters & LUFS Metrics Card
