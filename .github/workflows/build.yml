@@ -28,10 +28,24 @@ jobs:
           if [ ! -f .env ] && [ -f .env.example ]; then
             cp .env.example .env
           fi
-          # Decode base64 debug.keystore if available
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          # Restore debug.keystore from base64 if present
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
           fi
+          # If still missing, generate a valid debug.keystore matching debugConfig
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
+            echo "Generating debug.keystore for CI signing..."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          ls -la debug.keystore
 
       - name: Set up Gradle Cache
         uses: gradle/actions/setup-gradle@v4
