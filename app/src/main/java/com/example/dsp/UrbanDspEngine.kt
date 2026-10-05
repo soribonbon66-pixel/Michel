@@ -118,10 +118,11 @@ class UrbanDspEngine {
     fun processTrack(
         inputTrack: AudioTrackData,
         settings: MasteringSettings,
+        precomputedRawAnalysis: AudioAnalysis? = null,
         onProgress: (Float) -> Unit = {}
     ): Pair<AudioTrackData, MasteringResult> {
         val startTime = System.currentTimeMillis()
-        val originalAnalysis = analyzeTrack(inputTrack)
+        val originalAnalysis = precomputedRawAnalysis ?: analyzeTrack(inputTrack)
 
         val sampleRate = inputTrack.sampleRate.toFloat()
         val channels = inputTrack.channels
@@ -286,5 +287,73 @@ class UrbanDspEngine {
         )
 
         return Pair(masteredTrack, result)
+    }
+
+    /**
+     * Step 4: Closed-Loop Feedback Auto-Correction (Medición del resultado y auto-corrección adaptativa).
+     * Mide el audio resultante tras el máster inicial y corrige los parámetros aplicados para alcanzar con
+     * precisión milimétrica la sonoridad objetivo (LUFS), margen True-Peak y respuesta en frecuencias.
+     */
+    fun autoCorrectSettings(
+        currentSettings: MasteringSettings,
+        targetPreset: PresetType,
+        masteredAnalysis: AudioAnalysis,
+        rawAnalysis: AudioAnalysis
+    ): Pair<MasteringSettings, List<String>> {
+        val correctionLog = mutableListOf<String>()
+        val targetLufs = targetPreset.targetLufs
+        val achievedLufs = masteredAnalysis.integratedLufs
+
+        // 1. Error de sonoridad LUFS (Delta entre lo obtenido y la meta)
+        val lufsError = targetLufs - achievedLufs
+        val adjustedMakeupGain = (currentSettings.makeupGainDb + (lufsError * 0.85f)).coerceIn(0.0f, 15.0f)
+        val adjustedThreshold = (-adjustedMakeupGain * 0.70f).coerceIn(-12.0f, -2.0f)
+
+        if (abs(lufsError) >= 0.2f) {
+            correctionLog.add(
+                "Auto-corrección LUFS: Master inicial en ${"%.1f".format(achievedLufs)} LUFS (Objetivo: ${targetLufs} LUFS). " +
+                        "Makeup gain ajustado de +${"%.1f".format(currentSettings.makeupGainDb)}dB a +${"%.1f".format(adjustedMakeupGain)}dB (Corrección: ${if (lufsError > 0) "+" else ""}${"%.1f".format(lufsError)} LU)"
+            )
+        }
+
+        // 2. Control de margen True-Peak para evitar distorsión inter-sample
+        val ceiling = targetPreset.truePeakCeilingDb
+        val peakOvershoot = masteredAnalysis.truePeakDbfs - ceiling
+        val adjustedCeiling = if (peakOvershoot > 0f) {
+            val safeCeil = (ceiling - peakOvershoot - 0.2f).coerceAtLeast(-2.5f)
+            correctionLog.add("Auto-corrección True-Peak: Pico de ${"%.2f".format(masteredAnalysis.truePeakDbfs)} dBTP sobrepasó techo. Techo reajustado a ${"%.1f".format(safeCeil)} dBTP")
+            safeCeil
+        } else {
+            currentSettings.limiterCeilingDb
+        }
+
+        // 3. Compensación de pérdida de subgraves por limitación extrema
+        var adjustedSubGain = currentSettings.subBassBand.gainDb
+        if (masteredAnalysis.subBassEnergy < 0.26f && rawAnalysis.subBassEnergy >= 0.20f) {
+            val subBoost = ((0.28f - masteredAnalysis.subBassEnergy) * 8.0f).coerceIn(0.2f, 1.8f)
+            adjustedSubGain = (adjustedSubGain + subBoost).coerceIn(1.0f, 7.0f)
+            correctionLog.add("Auto-corrección Sub-Bass: Recuperación de pegada en graves profundos (+${"%.1f".format(subBoost)}dB)")
+        }
+
+        // 4. Limpieza de resonancia turbia residual
+        var adjustedMudGain = currentSettings.mudCutBand.gainDb
+        if (masteredAnalysis.lowMidEnergy > 0.22f) {
+            val extraCut = ((masteredAnalysis.lowMidEnergy - 0.20f) * 8.0f).coerceIn(0.3f, 1.5f)
+            adjustedMudGain = (adjustedMudGain - extraCut).coerceIn(-6.5f, -0.5f)
+            correctionLog.add("Auto-corrección Mud Scoop: Atenuación adicional a ${"%.1f".format(adjustedMudGain)}dB para mayor nitidez")
+        }
+
+        val totalLog = currentSettings.autoAdjustmentLog + correctionLog
+
+        val correctedSettings = currentSettings.copy(
+            makeupGainDb = adjustedMakeupGain,
+            limiterThresholdDb = adjustedThreshold,
+            limiterCeilingDb = adjustedCeiling,
+            subBassBand = currentSettings.subBassBand.copy(gainDb = adjustedSubGain),
+            mudCutBand = currentSettings.mudCutBand.copy(gainDb = adjustedMudGain),
+            autoAdjustmentLog = totalLog
+        )
+
+        return Pair(correctedSettings, correctionLog)
     }
 }

@@ -350,6 +350,7 @@ fun MasteringStudioScreen(
             StudioMetersRack(
                 rawAnalysis = uiState.rawAnalysis,
                 masteredAnalysis = uiState.masteredAnalysis,
+                targetLufs = uiState.selectedPreset.targetLufs,
                 isBypass = uiState.isBypassActive,
                 peakL = uiState.livePeakL,
                 peakR = uiState.livePeakR
@@ -361,7 +362,8 @@ fun MasteringStudioScreen(
                 onSubGainChanged = { gain -> viewModel.updateEqBandGain("sub", gain) },
                 onSnareGainChanged = { gain -> viewModel.updateEqBandGain("snare", gain) },
                 onSaturationChanged = { drive -> viewModel.updateSaturationDrive(drive) },
-                onLimiterCeilingChanged = { ceil -> viewModel.updateLimiterCeiling(ceil) }
+                onLimiterCeilingChanged = { ceil -> viewModel.updateLimiterCeiling(ceil) },
+                onAutoCorrect = { viewModel.autoCorrectCurrentMaster() }
             )
 
             // 6. Playback Controller
@@ -545,6 +547,7 @@ private fun PresetCard(
 private fun StudioMetersRack(
     rawAnalysis: com.example.model.AudioAnalysis,
     masteredAnalysis: com.example.model.AudioAnalysis,
+    targetLufs: Float,
     isBypass: Boolean,
     peakL: Float,
     peakR: Float
@@ -558,14 +561,24 @@ private fun StudioMetersRack(
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF1E293B)))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            // Real-Time LUFS Horizontal Gauge Meter Bar
+            LufsMeterBar(
+                currentLufs = active.integratedLufs,
+                targetLufs = targetLufs,
+                shortTermLufs = active.shortTermMaxLufs,
+                isMastered = !isBypass
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
-                text = "MEDICIONES DE SONORIDAD & DINÁMICA",
+                text = "MEDICIONES DE DINÁMICA & PICOS",
                 fontSize = 10.sp,
                 color = Color(0xFF94A3B8),
                 letterSpacing = 1.sp
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -632,7 +645,8 @@ private fun MasteringSlidersRack(
     onSubGainChanged: (Float) -> Unit,
     onSnareGainChanged: (Float) -> Unit,
     onSaturationChanged: (Float) -> Unit,
-    onLimiterCeilingChanged: (Float) -> Unit
+    onLimiterCeilingChanged: (Float) -> Unit,
+    onAutoCorrect: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -641,13 +655,32 @@ private fun MasteringSlidersRack(
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF1E293B)))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = "CONTROLES RÁPIDOS DE HARDWARE",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF94A3B8),
-                letterSpacing = 1.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "CONTROLES RÁPIDOS DE HARDWARE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8),
+                    letterSpacing = 1.sp
+                )
+                FilledTonalButton(
+                    onClick = onAutoCorrect,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFF1E293B),
+                        contentColor = Color(0xFF38BDF8)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp).testTag("auto_correct_master_button")
+                ) {
+                    Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("AUTO-CORREGIR", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

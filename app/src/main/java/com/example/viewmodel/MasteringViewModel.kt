@@ -7,13 +7,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.dsp.*
 import com.example.model.*
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 sealed class ExportState {
     object Idle : ExportState()
@@ -62,6 +61,7 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
     val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
 
     private var audioPlayer: RealtimeAudioPlayer? = null
+    private var reprocessJob: Job? = null
 
     init {
         initAudioPlayer()
@@ -154,38 +154,69 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(
                     isProcessing = true,
-                    statusMessage = "Analizando sonoridad LUFS & balance espectral..."
+                    statusMessage = "Paso 1/4: Analizando sonoridad LUFS y acústica inicial..."
                 )
             }
             val preAnalysis = dspEngine.analyzeTrack(track)
 
-            val settings = if (autoCalibrate) {
-                _uiState.update { it.copy(statusMessage = "Autocalibrando parámetros y umbrales para ${preset.title}...") }
+            val initialSettings = if (autoCalibrate) {
+                _uiState.update { it.copy(statusMessage = "Paso 2/4: Calibrando parámetros para ${preset.title}...") }
                 dspEngine.autoCalibrateSettings(preset, preAnalysis)
             } else {
                 _uiState.value.settings.copy(presetType = preset)
             }
 
-            _uiState.update { it.copy(statusMessage = "Renderizando cadena DSP (EQ, saturador y limitador)...") }
-            val (masteredTrack, result) = dspEngine.processTrack(track, settings) { progress ->
-                _uiState.update { it.copy(processingProgress = progress) }
+            _uiState.update { it.copy(statusMessage = "Paso 3/4: Renderizando máster inicial...") }
+            val (pass1Track, pass1Result) = dspEngine.processTrack(
+                inputTrack = track,
+                settings = initialSettings,
+                precomputedRawAnalysis = preAnalysis
+            ) { progress ->
+                _uiState.update { it.copy(processingProgress = progress * 0.7f) }
             }
 
-            audioPlayer?.setTracks(track, masteredTrack)
+            // Closed-loop adaptive feedback: Mide el resultado del máster y auto-corrige
+            val (finalTrack, finalResult, finalSettings) = if (autoCalibrate) {
+                _uiState.update { it.copy(statusMessage = "Paso 4/4: Midiendo resultado y aplicando auto-corrección adaptativa...") }
+                val (correctedSettings, corrections) = dspEngine.autoCorrectSettings(
+                    currentSettings = initialSettings,
+                    targetPreset = preset,
+                    masteredAnalysis = pass1Result.masteredAnalysis,
+                    rawAnalysis = preAnalysis
+                )
+
+                if (corrections.isNotEmpty()) {
+                    _uiState.update { it.copy(statusMessage = "Aplicando auto-corrección fina (${corrections.size} ajustes)...") }
+                    val (pass2Track, pass2Result) = dspEngine.processTrack(
+                        inputTrack = track,
+                        settings = correctedSettings,
+                        precomputedRawAnalysis = preAnalysis
+                    ) { progress ->
+                        _uiState.update { it.copy(processingProgress = 0.7f + progress * 0.3f) }
+                    }
+                    Triple(pass2Track, pass2Result, correctedSettings)
+                } else {
+                    Triple(pass1Track, pass1Result, initialSettings)
+                }
+            } else {
+                Triple(pass1Track, pass1Result, initialSettings)
+            }
+
+            audioPlayer?.setTracks(track, finalTrack)
             audioPlayer?.isBypassActive = _uiState.value.isBypassActive
 
             _uiState.update {
                 it.copy(
                     rawTrack = track,
-                    masteredTrack = masteredTrack,
+                    masteredTrack = finalTrack,
                     rawAnalysis = preAnalysis,
-                    masteredAnalysis = result.masteredAnalysis,
+                    masteredAnalysis = finalResult.masteredAnalysis,
                     selectedPreset = preset,
-                    settings = settings,
-                    result = result,
+                    settings = finalSettings,
+                    result = finalResult,
                     isProcessing = false,
                     processingProgress = 1.0f,
-                    statusMessage = "Master listo: ${"%.1f".format(result.masteredAnalysis.integratedLufs)} LUFS (Techo: ${settings.limiterCeilingDb} dBTP)"
+                    statusMessage = "Máster optimizado y auto-corregido: ${"%.1f".format(finalResult.masteredAnalysis.integratedLufs)} LUFS (Techo: ${finalSettings.limiterCeilingDb} dBTP)"
                 )
             }
         } catch (t: Throwable) {
@@ -325,18 +356,96 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
         reprocessWithSettings(curSettings.copy(limiterCeilingDb = ceilingDb))
     }
 
-    private fun reprocessWithSettings(newSettings: MasteringSettings) {
+    private fun reprocessWithSettings(newSettings: MasteringSettings, debounceMs: Long = 180L) {
         val raw = _uiState.value.rawTrack ?: return
+
+        // 1. Inmediatamente reflejar el valor en el estado para que los sliders y textos se muevan a 60/120fps sin lag
+        _uiState.update { it.copy(settings = newSettings) }
+
+        // 2. Cancelar cualquier tarea previa de procesamiento pesado
+        reprocessJob?.cancel()
+
+        // 3. Lanzar procesamiento diferido con debounce para evitar congelamientos por arrastre continuo
+        reprocessJob = viewModelScope.launch(Dispatchers.Default) {
+            if (debounceMs > 0L) {
+                delay(debounceMs)
+            }
+            if (!isActive) return@launch
+
+            _uiState.update { it.copy(isProcessing = true) }
+            try {
+                val (mastered, result) = dspEngine.processTrack(
+                    inputTrack = raw,
+                    settings = newSettings,
+                    precomputedRawAnalysis = _uiState.value.rawAnalysis
+                )
+                if (!isActive) return@launch
+
+                audioPlayer?.updateMasteredTrack(mastered)
+                _uiState.update {
+                    it.copy(
+                        masteredTrack = mastered,
+                        masteredAnalysis = result.masteredAnalysis,
+                        result = result,
+                        isProcessing = false
+                    )
+                }
+            } catch (t: Throwable) {
+                if (t !is CancellationException) {
+                    t.printStackTrace()
+                    _uiState.update { it.copy(isProcessing = false) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Permite ejecutar la auto-corrección en cualquier momento sobre el resultado actual.
+     */
+    fun autoCorrectCurrentMaster() {
+        val raw = _uiState.value.rawTrack ?: return
+        val currentResult = _uiState.value.result ?: return
+        val currentPreset = _uiState.value.selectedPreset
+
         viewModelScope.launch(Dispatchers.Default) {
-            _uiState.update { it.copy(settings = newSettings) }
-            val (mastered, result) = dspEngine.processTrack(raw, newSettings)
-            audioPlayer?.updateMasteredTrack(mastered)
             _uiState.update {
                 it.copy(
-                    masteredTrack = mastered,
-                    masteredAnalysis = result.masteredAnalysis,
-                    result = result
+                    isProcessing = true,
+                    statusMessage = "Midiendo máster actual y recalculando auto-corrección..."
                 )
+            }
+
+            val (correctedSettings, corrections) = dspEngine.autoCorrectSettings(
+                currentSettings = _uiState.value.settings,
+                targetPreset = currentPreset,
+                masteredAnalysis = currentResult.masteredAnalysis,
+                rawAnalysis = _uiState.value.rawAnalysis
+            )
+
+            if (corrections.isNotEmpty()) {
+                val (mastered, result) = dspEngine.processTrack(
+                    inputTrack = raw,
+                    settings = correctedSettings,
+                    precomputedRawAnalysis = _uiState.value.rawAnalysis
+                )
+                audioPlayer?.updateMasteredTrack(mastered)
+                _uiState.update {
+                    it.copy(
+                        masteredTrack = mastered,
+                        masteredAnalysis = result.masteredAnalysis,
+                        settings = correctedSettings,
+                        result = result,
+                        isProcessing = false,
+                        statusMessage = "Auto-corrección completada (${corrections.size} correcciones aplicadas)"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isProcessing = false,
+                        statusMessage = "El máster ya cumple exactamente los objetivos acústicos"
+                    )
+                }
             }
         }
     }
