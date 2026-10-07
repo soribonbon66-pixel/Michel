@@ -17,7 +17,14 @@ import kotlin.coroutines.cancellation.CancellationException
 sealed class ExportState {
     object Idle : ExportState()
     data class Exporting(val progress: Float) : ExportState()
-    data class Success(val uri: Uri, val fileName: String) : ExportState()
+    data class Success(
+        val uri: Uri,
+        val fileName: String,
+        val title: String = "¡Master Renderizado!",
+        val description: String = "Archivo guardado exitosamente en Música/ReggaetonMasterDSP:",
+        val mimeType: String = "audio/wav",
+        val previewContent: String? = null
+    ) : ExportState()
     data class Error(val message: String) : ExportState()
 }
 
@@ -528,14 +535,19 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
         val raw = _uiState.value.rawTrack
         if (raw == null) {
             _uiState.update {
-                it.copy(statusMessage = "No hay ningún track cargado para exportar análisis")
+                it.copy(
+                    exportState = ExportState.Error("Carga primero un track musical para analizar y exportar sus parámetros.")
+                )
             }
             return
         }
 
         viewModelScope.launch {
             _uiState.update {
-                it.copy(statusMessage = "Generando informe acústico y archivo de parámetros...")
+                it.copy(
+                    exportState = ExportState.Exporting(0.5f),
+                    statusMessage = "Generando informe acústico y archivo de parámetros..."
+                )
             }
 
             val title = raw.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
@@ -548,13 +560,23 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             )
 
             val result = MasteringProfileManager.exportTextFile(context, fileName, reportContent)
-            result.onSuccess {
+            result.onSuccess { uri ->
                 _uiState.update {
-                    it.copy(statusMessage = "Informe acústico guardado en Descargas: $fileName")
+                    it.copy(
+                        exportState = ExportState.Success(
+                            uri = uri,
+                            fileName = fileName,
+                            title = "¡Informe Acústico Generado!",
+                            description = "El análisis completo y los valores editables se han guardado en Descargas/ReggaetonMasterDSP:",
+                            mimeType = "text/plain",
+                            previewContent = reportContent
+                        ),
+                        statusMessage = "Informe acústico guardado en Descargas: $fileName"
+                    )
                 }
             }.onFailure { err ->
                 _uiState.update {
-                    it.copy(statusMessage = "Error al exportar análisis: ${err.localizedMessage ?: "Fallo"}")
+                    it.copy(exportState = ExportState.Error(err.localizedMessage ?: "Error al exportar análisis"))
                 }
             }
         }
@@ -565,16 +587,33 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
      */
     fun downloadProfileTemplate(context: Context) {
         viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    exportState = ExportState.Exporting(0.5f),
+                    statusMessage = "Generando plantilla editable..."
+                )
+            }
+
             val templateContent = MasteringProfileManager.generateEditableTxtTemplate()
             val fileName = "plantilla_mastering_reggaeton.txt"
             val result = MasteringProfileManager.exportTextFile(context, fileName, templateContent)
-            result.onSuccess {
+            result.onSuccess { uri ->
                 _uiState.update {
-                    it.copy(statusMessage = "Plantilla editable guardada en Descargas: $fileName")
+                    it.copy(
+                        exportState = ExportState.Success(
+                            uri = uri,
+                            fileName = fileName,
+                            title = "¡Plantilla Editable Descargada!",
+                            description = "Plantilla guardada en Descargas/ReggaetonMasterDSP. Puedes editar los valores en cualquier bloc de notas y re-importarla en la app:",
+                            mimeType = "text/plain",
+                            previewContent = templateContent
+                        ),
+                        statusMessage = "Plantilla editable guardada en Descargas: $fileName"
+                    )
                 }
             }.onFailure { err ->
                 _uiState.update {
-                    it.copy(statusMessage = "Error al guardar plantilla: ${err.localizedMessage ?: "Fallo"}")
+                    it.copy(exportState = ExportState.Error(err.localizedMessage ?: "Error al guardar plantilla"))
                 }
             }
         }

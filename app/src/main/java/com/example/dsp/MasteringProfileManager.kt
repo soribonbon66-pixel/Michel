@@ -445,42 +445,72 @@ object MasteringProfileManager {
         mimeType: String = "text/plain"
     ): Result<Uri> = withContext(Dispatchers.IO) {
         runCatching {
-            val outputStream: OutputStream
-            val targetUri: Uri
+            var targetUri: Uri? = null
 
+            // 1. Try MediaStore.Downloads (Android 10+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ReggaetonMasterDSP")
-                    put(MediaStore.Downloads.IS_PENDING, 1)
+                try {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/ReggaetonMasterDSP")
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(content.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        }
+                        val completeValues = ContentValues().apply {
+                            put(MediaStore.Downloads.IS_PENDING, 0)
+                        }
+                        context.contentResolver.update(uri, completeValues, null, null)
+                        targetUri = uri
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    ?: throw IllegalStateException("No se pudo crear entrada en descargas")
-                targetUri = uri
-                outputStream = context.contentResolver.openOutputStream(uri)
-                    ?: throw IllegalStateException("No se pudo abrir flujo de salida")
-            } else {
-                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "ReggaetonMasterDSP")
-                if (!dir.exists()) dir.mkdirs()
-                val file = File(dir, fileName)
-                targetUri = Uri.fromFile(file)
-                outputStream = FileOutputStream(file)
             }
 
-            outputStream.use { out ->
-                out.write(content.toByteArray(Charsets.UTF_8))
-                out.flush()
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val completeValues = ContentValues().apply {
-                    put(MediaStore.Downloads.IS_PENDING, 0)
+            // 2. Fallback to public storage directory
+            if (targetUri == null) {
+                try {
+                    val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "ReggaetonMasterDSP")
+                    if (!dir.exists()) dir.mkdirs()
+                    val file = File(dir, fileName)
+                    file.writeText(content, Charsets.UTF_8)
+                    targetUri = try {
+                        androidx.core.content.FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file
+                        )
+                    } catch (e: Exception) {
+                        Uri.fromFile(file)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                context.contentResolver.update(targetUri, completeValues, null, null)
             }
 
-            targetUri
+            // 3. Guaranteed fallback to app's external files directory
+            if (targetUri == null) {
+                val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+                val file = File(appDir, fileName)
+                file.writeText(content, Charsets.UTF_8)
+                targetUri = try {
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                } catch (e: Exception) {
+                    Uri.fromFile(file)
+                }
+            }
+
+            targetUri ?: throw IllegalStateException("No se pudo crear el archivo en el almacenamiento")
         }
     }
 }

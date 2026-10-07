@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -441,41 +445,92 @@ fun MasteringStudioScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("¡Master Renderizado!", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(export.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 },
                 text = {
-                    Column {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "Archivo guardado exitosamente en Música/ReggaetonMasterDSP:",
+                            text = export.description,
                             fontSize = 12.sp,
                             color = Color(0xFFCBD5E1)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = export.fileName,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF00E5FF)
                         )
+
+                        if (export.previewContent != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF090D14),
+                                border = CardDefaults.outlinedCardBorder().copy(
+                                    brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF1E293B))
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = export.previewContent,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF94A3B8),
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "audio/wav"
-                                putExtra(Intent.EXTRA_STREAM, export.uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (export.previewContent != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Mastering Data", export.previewContent)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Texto copiado al portapapeles", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Copiar", fontSize = 11.sp)
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Compartir Master WAV"))
-                            viewModel.dismissExportState()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Compartir")
+                        }
+                        Button(
+                            onClick = {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = export.mimeType
+                                    putExtra(Intent.EXTRA_STREAM, export.uri)
+                                    if (export.previewContent != null) {
+                                        putExtra(Intent.EXTRA_TEXT, export.previewContent)
+                                    }
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Compartir ${export.fileName}"))
+                                viewModel.dismissExportState()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Compartir", fontSize = 12.sp)
+                        }
                     }
                 },
                 dismissButton = {
