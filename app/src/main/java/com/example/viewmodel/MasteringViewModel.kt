@@ -50,6 +50,8 @@ data class StudioUiState(
     val exportState: ExportState = ExportState.Idle,
     val activeTab: StudioTab = StudioTab.SPECTRUM,
     val showReportDialog: Boolean = false,
+    val isCustomProfileActive: Boolean = false,
+    val customProfileName: String? = null,
     val statusMessage: String = "Carga un archivo o genera una pista demo para comenzar"
 )
 
@@ -233,7 +235,7 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
     fun selectPreset(preset: PresetType) {
         val raw = _uiState.value.rawTrack ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(selectedPreset = preset, isProcessing = true) }
+            _uiState.update { it.copy(selectedPreset = preset, isProcessing = true, isCustomProfileActive = false) }
             applyTrackAndMaster(raw, preset, autoCalibrate = true)
         }
     }
@@ -442,6 +444,137 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
                         isProcessing = false,
                         statusMessage = "El máster ya cumple exactamente los objetivos acústicos"
                     )
+                }
+            }
+        }
+    }
+
+    /**
+     * Carga un archivo de perfil (.txt o .json) con valores editables y los aplica directamente al máster,
+     * sin aplicar los presets preestablecidos.
+     */
+    fun loadProfileFromUri(context: Context, uri: Uri) {
+        val raw = _uiState.value.rawTrack
+        if (raw == null) {
+            _uiState.update {
+                it.copy(statusMessage = "Carga primero un track musical antes de aplicar el archivo de perfil")
+            }
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update {
+                it.copy(
+                    isProcessing = true,
+                    statusMessage = "Leyendo archivo de perfil personalizado (.txt / .json)..."
+                )
+            }
+
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: throw IllegalArgumentException("No se pudo abrir el archivo seleccionado")
+                val content = inputStream.bufferedReader().use { it.readText() }
+
+                val parseResult = MasteringProfileManager.parseProfile(content)
+                val customSettings = parseResult.getOrThrow()
+
+                withContext(Dispatchers.Default) {
+                    _uiState.update {
+                        it.copy(
+                            statusMessage = "Aplicando valores del archivo al masterizado (sin presets)...",
+                            settings = customSettings,
+                            isCustomProfileActive = true,
+                            customProfileName = "Perfil Personalizado (.txt/.json)"
+                        )
+                    }
+
+                    val (mastered, result) = dspEngine.processTrack(
+                        inputTrack = raw,
+                        settings = customSettings,
+                        precomputedRawAnalysis = _uiState.value.rawAnalysis
+                    ) { progress ->
+                        _uiState.update { it.copy(processingProgress = progress) }
+                    }
+
+                    audioPlayer?.updateMasteredTrack(mastered)
+
+                    _uiState.update {
+                        it.copy(
+                            masteredTrack = mastered,
+                            masteredAnalysis = result.masteredAnalysis,
+                            result = result,
+                            isProcessing = false,
+                            statusMessage = "Valores del archivo aplicados con éxito: ${"%.1f".format(result.masteredAnalysis.integratedLufs)} LUFS"
+                        )
+                    }
+                }
+            } catch (t: Throwable) {
+                t.printStackTrace()
+                _uiState.update {
+                    it.copy(
+                        isProcessing = false,
+                        statusMessage = "Error al aplicar perfil: ${t.localizedMessage ?: "Formato de archivo inválido"}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Analiza el track actual y descarga un archivo .txt con todos los valores medidos del análisis
+     * y los parámetros exactos aplicados en el máster.
+     */
+    fun exportAnalysisAndParameters(context: Context) {
+        val raw = _uiState.value.rawTrack
+        if (raw == null) {
+            _uiState.update {
+                it.copy(statusMessage = "No hay ningún track cargado para exportar análisis")
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(statusMessage = "Generando informe acústico y archivo de parámetros...")
+            }
+
+            val title = raw.title.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val fileName = "${title}_Analisis_y_Parametros.txt"
+            val reportContent = MasteringProfileManager.generateAnalysisReport(
+                trackTitle = raw.title,
+                rawAnalysis = _uiState.value.rawAnalysis,
+                masteredAnalysis = _uiState.value.masteredAnalysis,
+                settings = _uiState.value.settings
+            )
+
+            val result = MasteringProfileManager.exportTextFile(context, fileName, reportContent)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(statusMessage = "Informe acústico guardado en Descargas: $fileName")
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(statusMessage = "Error al exportar análisis: ${err.localizedMessage ?: "Fallo"}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Descarga una plantilla .txt editable con todos los parámetros disponibles.
+     */
+    fun downloadProfileTemplate(context: Context) {
+        viewModelScope.launch {
+            val templateContent = MasteringProfileManager.generateEditableTxtTemplate()
+            val fileName = "plantilla_mastering_reggaeton.txt"
+            val result = MasteringProfileManager.exportTextFile(context, fileName, templateContent)
+            result.onSuccess {
+                _uiState.update {
+                    it.copy(statusMessage = "Plantilla editable guardada en Descargas: $fileName")
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(statusMessage = "Error al guardar plantilla: ${err.localizedMessage ?: "Fallo"}")
                 }
             }
         }

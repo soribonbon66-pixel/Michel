@@ -54,6 +54,15 @@ fun MasteringStudioScreen(
         }
     }
 
+    // Custom profile (.txt / .json) picker launcher
+    val profilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.loadProfileFromUri(context, uri)
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color(0xFF070B11),
@@ -275,6 +284,15 @@ fun MasteringStudioScreen(
                 isBypassActive = uiState.isBypassActive,
                 onToggleBypass = { viewModel.toggleBypass() },
                 modifier = Modifier.testTag("ab_switch_container")
+            )
+
+            // Custom External Profile (.txt / .json) & Acoustic Analysis Export
+            CustomProfileCard(
+                isCustomProfileActive = uiState.isCustomProfileActive,
+                customProfileName = uiState.customProfileName,
+                onImportProfile = { profilePickerLauncher.launch("*/*") },
+                onExportAnalysis = { viewModel.exportAnalysisAndParameters(context) },
+                onDownloadTemplate = { viewModel.downloadProfileTemplate(context) }
             )
 
             // 3. Tab Switcher (Spectrum Visualizer vs EQ Curve vs Multiband Compressor)
