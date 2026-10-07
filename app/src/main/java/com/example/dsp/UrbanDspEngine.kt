@@ -1,6 +1,8 @@
 package com.example.dsp
 
 import com.example.model.*
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.math.*
 
 /**
@@ -115,7 +117,7 @@ class UrbanDspEngine {
     /**
      * Step 3: Render processed audio through the complete mastering chain.
      */
-    fun processTrack(
+    suspend fun processTrack(
         inputTrack: AudioTrackData,
         settings: MasteringSettings,
         precomputedRawAnalysis: AudioAnalysis? = null,
@@ -260,6 +262,7 @@ class UrbanDspEngine {
             }
 
             if (i % progressStep == 0) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 onProgress(i.toFloat() / totalFrames)
             }
         }

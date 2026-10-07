@@ -372,7 +372,6 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             }
             if (!isActive) return@launch
 
-            _uiState.update { it.copy(isProcessing = true) }
             try {
                 val (mastered, result) = dspEngine.processTrack(
                     inputTrack = raw,
@@ -386,14 +385,12 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(
                         masteredTrack = mastered,
                         masteredAnalysis = result.masteredAnalysis,
-                        result = result,
-                        isProcessing = false
+                        result = result
                     )
                 }
             } catch (t: Throwable) {
                 if (t !is CancellationException) {
                     t.printStackTrace()
-                    _uiState.update { it.copy(isProcessing = false) }
                 }
             }
         }

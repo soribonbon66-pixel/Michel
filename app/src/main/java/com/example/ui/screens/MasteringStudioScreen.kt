@@ -687,27 +687,27 @@ private fun MasteringSlidersRack(
             // 1. Sub-Bass 40-60Hz
             SliderParamRow(
                 label = "Sub-Bass 45-60Hz",
-                valueText = "+%.1f dB".format(settings.subBassBand.gainDb),
+                valueText = "${if (settings.subBassBand.gainDb >= 0) "+" else ""}%.1f dB".format(settings.subBassBand.gainDb),
                 value = settings.subBassBand.gainDb,
-                valueRange = 0f..8f,
+                valueRange = -6.0f..12.0f,
                 onValueChange = onSubGainChanged
             )
 
             // 2. Snare Presence / Attack 3.5kHz
             SliderParamRow(
                 label = "Pegada / Redoblante (3.5 kHz)",
-                valueText = "+%.1f dB".format(settings.snarePresenceBand.gainDb),
+                valueText = "${if (settings.snarePresenceBand.gainDb >= 0) "+" else ""}%.1f dB".format(settings.snarePresenceBand.gainDb),
                 value = settings.snarePresenceBand.gainDb,
-                valueRange = 0f..8f,
+                valueRange = -6.0f..12.0f,
                 onValueChange = onSnareGainChanged
             )
 
             // 3. Tube Saturation Drive
             SliderParamRow(
                 label = "Saturación Armónica Analógica",
-                valueText = "${(settings.saturationDrive * 100).toInt()}%",
+                valueText = "${(settings.saturationDrive.coerceIn(0f, 1f) * 100).toInt()}%",
                 value = settings.saturationDrive,
-                valueRange = 0f..0.8f,
+                valueRange = 0.0f..1.0f,
                 onValueChange = onSaturationChanged
             )
 
@@ -716,7 +716,7 @@ private fun MasteringSlidersRack(
                 label = "Techo Limitador True-Peak",
                 valueText = "%.2f dBTP".format(settings.limiterCeilingDb),
                 value = settings.limiterCeilingDb,
-                valueRange = -1.0f..-0.05f,
+                valueRange = -3.0f..0.0f,
                 onValueChange = onLimiterCeilingChanged
             )
         }
@@ -731,6 +731,12 @@ private fun SliderParamRow(
     valueRange: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit
 ) {
+    var localValue by remember(value) { mutableStateOf(value.coerceIn(valueRange.start, valueRange.endInclusive)) }
+
+    LaunchedEffect(value) {
+        localValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
+    }
+
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -740,15 +746,20 @@ private fun SliderParamRow(
             Text(valueText, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
         }
         Slider(
-            value = value,
-            onValueChange = onValueChange,
+            value = localValue.coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = {
+                localValue = it.coerceIn(valueRange.start, valueRange.endInclusive)
+            },
+            onValueChangeFinished = {
+                onValueChange(localValue.coerceIn(valueRange.start, valueRange.endInclusive))
+            },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
                 thumbColor = Color(0xFF00E5FF),
                 activeTrackColor = Color(0xFF0284C7),
                 inactiveTrackColor = Color(0xFF1E293B)
             ),
-            modifier = Modifier.height(28.dp)
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -764,6 +775,15 @@ private fun PlaybackControlsCard(
     onSeek: (Float) -> Unit,
     onToggleLoop: () -> Unit
 ) {
+    var localProgress by remember(progress) { mutableStateOf(progress.coerceIn(0f, 1f)) }
+    var isUserDragging by remember { mutableStateOf(false) }
+
+    LaunchedEffect(progress) {
+        if (!isUserDragging) {
+            localProgress = progress.coerceIn(0f, 1f)
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1723)),
@@ -771,16 +791,23 @@ private fun PlaybackControlsCard(
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF1E293B)))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Slider seekbar
+            // Slider seekbar with non-conflicting drag lifecycle
             Slider(
-                value = progress.coerceIn(0f, 1f),
-                onValueChange = onSeek,
+                value = localProgress.coerceIn(0f, 1f),
+                onValueChange = {
+                    isUserDragging = true
+                    localProgress = it.coerceIn(0f, 1f)
+                },
+                onValueChangeFinished = {
+                    isUserDragging = false
+                    onSeek(localProgress.coerceIn(0f, 1f))
+                },
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
                     activeTrackColor = Color(0xFF00E5FF),
                     inactiveTrackColor = Color(0xFF1E293B)
                 ),
-                modifier = Modifier.fillMaxWidth().height(24.dp).testTag("playback_seekbar")
+                modifier = Modifier.fillMaxWidth().testTag("playback_seekbar")
             )
 
             Row(

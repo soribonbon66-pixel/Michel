@@ -311,6 +311,12 @@ private fun PrecisionSliderGroup(
     onNudgeCoarsePlus: () -> Unit,
     testTagPrefix: String
 ) {
+    var localValue by remember(value) { mutableStateOf(value.coerceIn(valueRange.start, valueRange.endInclusive)) }
+
+    LaunchedEffect(value) {
+        localValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
+    }
+
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -345,10 +351,15 @@ private fun PrecisionSliderGroup(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // High precision continuous slider
+        // High precision continuous slider with zero DSP overhead while dragging
         Slider(
-            value = value,
-            onValueChange = onValueChange,
+            value = localValue.coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = {
+                localValue = it.coerceIn(valueRange.start, valueRange.endInclusive)
+            },
+            onValueChangeFinished = {
+                onValueChange(localValue.coerceIn(valueRange.start, valueRange.endInclusive))
+            },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
                 thumbColor = accentColor,
@@ -357,7 +368,6 @@ private fun PrecisionSliderGroup(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(30.dp)
                 .testTag("${testTagPrefix}_slider")
         )
 

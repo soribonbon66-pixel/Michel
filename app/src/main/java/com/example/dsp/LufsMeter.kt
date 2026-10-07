@@ -92,8 +92,8 @@ class LufsMeter {
                     currentBlockCount = 0
                 }
 
-                // Spectral band accumulation (sampled for efficiency if large track)
-                if (i % 2 == 0) {
+                // Spectral band accumulation (sampled for efficiency on mobile)
+                if (i % 16 == 0) {
                     val mono = (left + right) * 0.5f
                     val sVal = subFilter.processSample(mono, 0)
                     val bVal = bassFilter.processSample(mono, 0)
