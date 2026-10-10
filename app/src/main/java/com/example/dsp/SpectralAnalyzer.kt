@@ -4,6 +4,7 @@ import kotlin.math.*
 
 /**
  * High-accuracy Spectral Analyzer based on Fast Fourier Transform (FFT) and Welch's STFT method.
+ * Averages every 50%-overlapped Hann block of the track (no frame skipping for normal-length tracks).
  * Computes contiguous, non-overlapping power spectral distribution across 6 acoustic bands:
  * - Sub-Bass: 20 Hz - 60 Hz
  * - Punch / Bass: 60 Hz - 250 Hz
@@ -114,10 +115,11 @@ object SpectralAnalyzer {
         val real = FloatArray(FFT_SIZE)
         val imag = FloatArray(FFT_SIZE)
 
-        // Select frames using Welch method: 50% overlap.
-        // For efficiency on long files, up to 128 frames evenly distributed across the track.
+        // Welch method: 50% overlap, averaging ALL blocks of the track so the distribution is
+        // representative of the whole song. The cap only exists as a safety net: 10,000 blocks
+        // cover the 7-minute decoder limit at up to 48 kHz (420 s * 48000 / 2048 = 9,844 blocks).
         val hopSize = FFT_SIZE / 2
-        val maxFramesToProcess = 128
+        val maxFramesToProcess = 10_000
         val availableBlocks = if (totalFrames >= FFT_SIZE) {
             (totalFrames - FFT_SIZE) / hopSize + 1
         } else 1
