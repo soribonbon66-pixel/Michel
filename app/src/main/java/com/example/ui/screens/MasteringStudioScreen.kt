@@ -586,9 +586,9 @@ private fun StudioMetersRack(
 
                 // Crest Factor PLR
                 LoudnessPill(
-                    title = "RANGO DINÁMICO",
-                    value = "%.1f dB".format(active.dynamicRangeDb),
-                    subText = "Crest Factor",
+                    title = "FACTOR CRESTA",
+                    value = "%.1f dB".format(active.crestFactorDb),
+                    subText = "Pk - RMS (PLR)",
                     accentColor = Color(0xFFFBBF24)
                 )
             }

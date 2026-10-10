@@ -359,6 +359,7 @@ object MasteringProfileManager {
 
     /**
      * Generates a complete Acoustic Analysis and Applied Parameters report.
+     * Clearly separates objective digital measurements from mastering recommendations per EBU R128.
      */
     fun generateAnalysisReport(
         trackTitle: String,
@@ -371,27 +372,66 @@ object MasteringProfileManager {
             appendLine("INFORME ACÚSTICO & PARÁMETROS DE MASTERIZACIÓN - REGGAETON MASTER")
             appendLine("Pista analizada: $trackTitle")
             appendLine("Fecha de exportación: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+            appendLine("Normas aplicadas: ITU-R BS.1770-4 / EBU R128 / EBU Tech 3342")
             appendLine("=================================================================")
             appendLine()
-            appendLine("--- 1. MEDICIÓN DE SONORIDAD & NORMAS ITU-R BS.1770 / EBU R128 ---")
-            appendLine("Sonoridad Integrada (Raw Mix):     ${"%.2f".format(rawAnalysis.integratedLufs)} LUFS")
-            appendLine("Sonoridad Integrada (Mastered):    ${"%.2f".format(masteredAnalysis.integratedLufs)} LUFS")
-            appendLine("Loudness Short-Term Máx (3s):       ${"%.2f".format(masteredAnalysis.shortTermMaxLufs)} LUFS")
-            appendLine("Nivel de Pico True-Peak:           ${"%.2f".format(masteredAnalysis.truePeakDbfs)} dBTP")
-            appendLine("Margen de Techo Aplicado:          ${"%.2f".format(settings.limiterCeilingDb)} dBTP")
-            appendLine("Rango Dinámico / Crest Factor:     ${"%.2f".format(masteredAnalysis.dynamicRangeDb)} dB")
-            appendLine("Detección de Clipping:             ${if (masteredAnalysis.hasClipping) "ALERTA (Picos > 0 dB)" else "LIMPIO (Protegido anti-clipping)"}")
+            appendLine("--- SECCIÓN 1: MEDICIONES OBJETIVAS DE SONORIDAD & DINÁMICA ---")
+            appendLine("Sonoridad Integrada (Raw Mix):         ${rawAnalysis.formattedIntegratedLufs}")
+            appendLine("Sonoridad Integrada (Mastered):        ${masteredAnalysis.formattedIntegratedLufs}")
+            appendLine("Short-Term Máximo 3s (Raw Mix):        ${rawAnalysis.formattedShortTermLufs}")
+            appendLine("Short-Term Máximo 3s (Mastered):       ${masteredAnalysis.formattedShortTermLufs}")
+            appendLine("Momentary Máximo 400ms (Mastered):     ${masteredAnalysis.formattedMomentaryLufs}")
+            appendLine("Sample Peak (Raw Mix):                 ${rawAnalysis.formattedSamplePeak}")
+            appendLine("Sample Peak (Mastered):                ${masteredAnalysis.formattedSamplePeak}")
+            appendLine("True-Peak Medido 4x FIR (Raw Mix):     ${rawAnalysis.formattedTruePeak}")
+            appendLine("True-Peak Medido 4x FIR (Mastered):    ${masteredAnalysis.formattedTruePeak}")
+            appendLine("Techo Objetivo del Limitador:          ${"%.2f".format(settings.limiterCeilingDb)} dBTP")
+            appendLine("Nivel RMS No Ponderado (Mastered):     ${masteredAnalysis.formattedRms}")
+            appendLine("Factor de Cresta / PLR (Mastered):     ${masteredAnalysis.formattedCrestFactor}")
+            appendLine("Rango Dinámico de Sonoridad (LRA):     ${masteredAnalysis.formattedLra} (EBU Tech 3342)")
+            appendLine("Correlación de Fase Estéreo:           ${masteredAnalysis.formattedStereoCorrelation} (-1.0 a +1.0)")
+            appendLine("Detección de Clipping:                 ${if (masteredAnalysis.hasClipping) "ALERTA (Picos >= 0 dBTP)" else "LIMPIO (Protegido anti-clipping)"}")
             appendLine()
-            appendLine("--- 2. BALANCE ESPECTRAL POR BANDAS DE FRECUENCIA ---")
-            appendLine("Sub-Bass (20 - 60 Hz):             ${(masteredAnalysis.subBassEnergy * 100).toInt()}% de energía relativa (Raw: ${(rawAnalysis.subBassEnergy * 100).toInt()}%)")
-            appendLine("Cuerpo de Graves (60 - 250 Hz):    ${(masteredAnalysis.bassEnergy * 100).toInt()}%")
-            appendLine("Zona Turbia Mud (250 - 500 Hz):    ${(masteredAnalysis.lowMidEnergy * 100).toInt()}%")
-            appendLine("Medios Vocales (500 Hz - 2 kHz):   ${(masteredAnalysis.midEnergy * 100).toInt()}%")
-            appendLine("Ataque Redoblante (2 - 6 kHz):     ${(masteredAnalysis.highMidEnergy * 100).toInt()}%")
-            appendLine("Brillo y Aire (6 - 20 kHz):        ${(masteredAnalysis.airEnergy * 100).toInt()}%")
-            appendLine("Frecuencia Dominante de Pegada:    ${masteredAnalysis.dominantFrequencyHz.toInt()} Hz")
+            appendLine("--- SECCIÓN 2: DISTRIBUCIÓN ESPECTRAL REAL (FFT WELCH) ---")
+            appendLine("Nota: Porcentajes calculados por transformada de Fourier continua (suman 100%).")
+            appendLine("Sub-Bass (20 - 60 Hz):                 ${"%.1f".format(masteredAnalysis.subBassPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.subBassPercent)}%)")
+            appendLine("Cuerpo de Graves (60 - 250 Hz):        ${"%.1f".format(masteredAnalysis.bassPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.bassPercent)}%)")
+            appendLine("Zona Turbia Mud (250 - 500 Hz):        ${"%.1f".format(masteredAnalysis.lowMidPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.lowMidPercent)}%)")
+            appendLine("Medios Vocales (500 Hz - 2 kHz):       ${"%.1f".format(masteredAnalysis.midPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.midPercent)}%)")
+            appendLine("Pegada Redoblante (2 - 6 kHz):         ${"%.1f".format(masteredAnalysis.highMidPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.highMidPercent)}%)")
+            appendLine("Brillo y Aire (6 - 20 kHz):            ${"%.1f".format(masteredAnalysis.airPercent)}% (Raw Mix: ${"%.1f".format(rawAnalysis.airPercent)}%)")
+            appendLine("Frecuencia Pico Global de Energía:     ${masteredAnalysis.formattedPeakFrequency}")
             appendLine()
-            appendLine("--- 3. PARÁMETROS EXACTOS EDITABLES (LISTOS PARA RE-IMPORTAR) ---")
+            appendLine("--- SECCIÓN 3: RECOMENDACIONES DE MASTERIZACIÓN (SUGERIDAS) ---")
+            appendLine("Aviso: Estas son pautas de optimización sugeridas, no mediciones acústicas fijas.")
+            val suggestions = buildList {
+                if (masteredAnalysis.truePeakDbfs >= -0.1f) {
+                    add("- Techo True-Peak: Bajar el techo del limitador a -0.5 dBTP o -1.0 dBTP para prevenir inter-sample peaks en streaming.")
+                } else {
+                    add("- Techo True-Peak: Margen seguro (${"%.2f".format(masteredAnalysis.truePeakDbfs)} dBTP), cumple normas de distribución digital.")
+                }
+                if (rawAnalysis.subBassPercent > 40f) {
+                    add("- Balance de Graves: Elevada energía en sub-bass (${"%.1f".format(rawAnalysis.subBassPercent)}%). Evaluar corte mono-sub en 80-90Hz.")
+                }
+                if (rawAnalysis.lowMidPercent > 28f) {
+                    add("- Claridad: La zona mud (250-500 Hz) supera el 25%. Un dip correctivo de -1.5 a -2.5 dB abrirá espacio en la mezcla.")
+                }
+                if (masteredAnalysis.integratedLufs < -14.0f) {
+                    add("- Objetivo de Sonoridad: Para sonido urbano comercial competitivo, el LUFS suele situarse entre -8.5 y -10 LUFS.")
+                } else if (masteredAnalysis.integratedLufs > -7.0f) {
+                    add("- Objetivo de Sonoridad: Sonoridad muy agresiva (${"%.1f".format(masteredAnalysis.integratedLufs)} LUFS). Vigilar distorsión armónica.")
+                }
+                if (masteredAnalysis.stereoCorrelation < 0.2f && !masteredAnalysis.isSilent) {
+                    add("- Imagen Estéreo: Correlación baja (${"%.2f".format(masteredAnalysis.stereoCorrelation)}). Reducir apertura estéreo para evitar cancelaciones en mono.")
+                }
+            }
+            if (suggestions.isEmpty()) {
+                appendLine("- Mezcla equilibrada sin anomalías acústicas detectadas.")
+            } else {
+                suggestions.forEach { appendLine(it) }
+            }
+            appendLine()
+            appendLine("--- SECCIÓN 4: PARÁMETROS EXACTOS EDITABLES (LISTOS PARA RE-IMPORTAR) ---")
             appendLine("[ECUALIZADOR_5_BANDAS]")
             appendLine("sub_bass_freq_hz=${settings.subBassBand.frequencyHz}")
             appendLine("sub_bass_gain_db=${settings.subBassBand.gainDb}")
@@ -429,7 +469,7 @@ object MasteringProfileManager {
             appendLine("limiter_release_ms=${settings.limiterReleaseMs}")
             appendLine()
             appendLine("=================================================================")
-            appendLine("NOTA: Puedes guardar este bloque [3] en un archivo .txt o .json")
+            appendLine("NOTA: Puedes guardar el bloque [SECCIÓN 4] en un archivo .txt")
             appendLine("y cargarlo en la app para re-aplicar esta misma configuración.")
             appendLine("=================================================================")
         }
