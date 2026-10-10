@@ -23,6 +23,26 @@ enum class PresetType(
     val limiterReleaseMs: Float,
     val monoSubCutoffHz: Float
 ) {
+    CLEAN_NEUTRAL(
+        title = "Ajustes Manuales",
+        subtitle = "Sin presets iniciales (Plano)",
+        description = "Respuesta limpia y transparente sin presets iniciales aplicados. Todos los parámetros se controlan manualmente con los sliders o archivo cargado.",
+        targetLufs = -14.0f,
+        truePeakCeilingDb = -0.2f,
+        subBassFreqHz = 50.0f,
+        subBassBaseGainDb = 0.0f,
+        kickPunchFreqHz = 85.0f,
+        kickPunchBaseGainDb = 0.0f,
+        mudCutFreqHz = 280.0f,
+        mudCutBaseGainDb = 0.0f,
+        snarePresenceFreqHz = 3200.0f,
+        snarePresenceBaseGainDb = 0.0f,
+        airShelfFreqHz = 11000.0f,
+        airShelfBaseGainDb = 0.0f,
+        saturationDrive = 0.0f,
+        limiterReleaseMs = 60.0f,
+        monoSubCutoffHz = 90.0f
+    ),
     OLD_SCHOOL_PERREO(
         title = "Old-School Perreo 2000s",
         subtitle = "Gordo, Analógico & Contundente",

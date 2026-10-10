@@ -52,7 +52,7 @@ fun ParametricEqCurve(
                 letterSpacing = 1.sp
             )
             Text(
-                text = if (settings.isAutoCalibrated) "Auto-Ajustado para ${settings.presetType.title}" else "Preset Base",
+                text = "Ajustes Manuales",
                 fontSize = 10.sp,
                 color = Color(0xFF00E5FF)
             )

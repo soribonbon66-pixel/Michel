@@ -40,7 +40,6 @@ data class StudioUiState(
     val masteredTrack: AudioTrackData? = null,
     val rawAnalysis: AudioAnalysis = AudioAnalysis.EMPTY,
     val masteredAnalysis: AudioAnalysis = AudioAnalysis.EMPTY,
-    val selectedPreset: PresetType = PresetType.OLD_SCHOOL_PERREO,
     val settings: MasteringSettings = MasteringSettings(),
     val result: MasteringResult? = null,
     val isPlaying: Boolean = false,
@@ -74,8 +73,8 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         initAudioPlayer()
-        // Automatically load demo old-school perreo beat so producer can audition immediately
-        loadDemoBeat(isOldSchool = true)
+        // Carga un beat demo limpio y realiza el análisis completo del track sin presets
+        loadDemoBeat()
     }
 
     private fun initAudioPlayer() {
@@ -108,13 +107,13 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(
                     isProcessing = true,
-                    statusMessage = "Cargando y decodificando audio..."
+                    statusMessage = "Cargando y analizando track de audio..."
                 )
             }
             audioPlayer?.pause()
             try {
                 val track = AudioDecoder.decodeFromUri(context, uri)
-                applyTrackAndMaster(track, _uiState.value.selectedPreset, autoCalibrate = true)
+                applyTrackClean(track)
             } catch (t: Throwable) {
                 t.printStackTrace()
                 _uiState.update {
@@ -127,105 +126,73 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun loadDemoBeat(isOldSchool: Boolean) {
+    fun loadDemoBeat() {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isProcessing = true,
-                    statusMessage = if (isOldSchool) "Sintetizando beat demo Old-School 95BPM..." else "Sintetizando dembow 118BPM..."
+                    statusMessage = "Cargando beat urbano demo (95 BPM)..."
                 )
             }
             audioPlayer?.pause()
-            val preset = if (isOldSchool) PresetType.OLD_SCHOOL_PERREO else PresetType.DEMBOW_OSCURO
             try {
                 val demoTrack = withContext(Dispatchers.Default) {
-                    AudioDecoder.generateUrbanDemoBeat(isOldSchool = isOldSchool, durationSeconds = 10.0f)
+                    AudioDecoder.generateUrbanDemoBeat(isOldSchool = true, durationSeconds = 10.0f)
                 }
-                applyTrackAndMaster(demoTrack, preset, autoCalibrate = true)
+                applyTrackClean(demoTrack)
             } catch (t: Throwable) {
                 t.printStackTrace()
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        statusMessage = "Error al sintetizar demo: ${t.localizedMessage ?: t.javaClass.simpleName}"
+                        statusMessage = "Error al generar demo: ${t.localizedMessage ?: t.javaClass.simpleName}"
                     )
                 }
             }
         }
     }
 
-    private suspend fun applyTrackAndMaster(
-        track: AudioTrackData,
-        preset: PresetType,
-        autoCalibrate: Boolean
-    ) = withContext(Dispatchers.Default) {
+    /**
+     * Al cargar un track, la app analiza y muestra un análisis completo del track.
+     * No aplica presets iniciales: los ajustes comienzan planos/limpios (0 dB).
+     */
+    private suspend fun applyTrackClean(track: AudioTrackData) = withContext(Dispatchers.Default) {
         try {
             _uiState.update {
                 it.copy(
                     isProcessing = true,
-                    statusMessage = "Paso 1/4: Analizando sonoridad LUFS y acústica inicial..."
+                    statusMessage = "Analizando sonoridad LUFS, picos y espectro acústico..."
                 )
             }
+            // 1. Análisis completo del track
             val preAnalysis = dspEngine.analyzeTrack(track)
 
-            val initialSettings = if (autoCalibrate) {
-                _uiState.update { it.copy(statusMessage = "Paso 2/4: Calibrando parámetros para ${preset.title}...") }
-                dspEngine.autoCalibrateSettings(preset, preAnalysis)
-            } else {
-                _uiState.value.settings.copy(presetType = preset)
-            }
+            // 2. Ajustes iniciales limpios sin presets iniciales
+            val cleanSettings = MasteringSettings.CLEAN
 
-            _uiState.update { it.copy(statusMessage = "Paso 3/4: Renderizando máster inicial...") }
-            val (pass1Track, pass1Result) = dspEngine.processTrack(
+            // 3. Renderizado transparente del máster inicial
+            val (masteredTrack, initialResult) = dspEngine.processTrack(
                 inputTrack = track,
-                settings = initialSettings,
+                settings = cleanSettings,
                 precomputedRawAnalysis = preAnalysis
-            ) { progress ->
-                _uiState.update { it.copy(processingProgress = progress * 0.7f) }
-            }
+            )
 
-            // Closed-loop adaptive feedback: Mide el resultado del máster y auto-corrige
-            val (finalTrack, finalResult, finalSettings) = if (autoCalibrate) {
-                _uiState.update { it.copy(statusMessage = "Paso 4/4: Midiendo resultado y aplicando auto-corrección adaptativa...") }
-                val (correctedSettings, corrections) = dspEngine.autoCorrectSettings(
-                    currentSettings = initialSettings,
-                    targetPreset = preset,
-                    masteredAnalysis = pass1Result.masteredAnalysis,
-                    rawAnalysis = preAnalysis
-                )
-
-                if (corrections.isNotEmpty()) {
-                    _uiState.update { it.copy(statusMessage = "Aplicando auto-corrección fina (${corrections.size} ajustes)...") }
-                    val (pass2Track, pass2Result) = dspEngine.processTrack(
-                        inputTrack = track,
-                        settings = correctedSettings,
-                        precomputedRawAnalysis = preAnalysis
-                    ) { progress ->
-                        _uiState.update { it.copy(processingProgress = 0.7f + progress * 0.3f) }
-                    }
-                    Triple(pass2Track, pass2Result, correctedSettings)
-                } else {
-                    Triple(pass1Track, pass1Result, initialSettings)
-                }
-            } else {
-                Triple(pass1Track, pass1Result, initialSettings)
-            }
-
-            audioPlayer?.setTracks(track, finalTrack)
+            audioPlayer?.setTracks(track, masteredTrack)
             audioPlayer?.isBypassActive = _uiState.value.isBypassActive
 
             _uiState.update {
                 it.copy(
                     rawTrack = track,
-                    masteredTrack = finalTrack,
+                    masteredTrack = masteredTrack,
                     rawAnalysis = preAnalysis,
-                    masteredAnalysis = finalResult.masteredAnalysis,
-                    selectedPreset = preset,
-                    settings = finalSettings,
-                    result = finalResult,
+                    masteredAnalysis = initialResult.masteredAnalysis,
+                    settings = cleanSettings,
+                    result = initialResult,
                     isProcessing = false,
                     processingProgress = 1.0f,
-                    statusMessage = "Máster optimizado y auto-corregido: ${"%.1f".format(finalResult.masteredAnalysis.integratedLufs)} LUFS (Techo: ${finalSettings.limiterCeilingDb} dBTP)"
+                    isCustomProfileActive = false,
+                    customProfileName = null,
+                    statusMessage = "Track analizado: ${"%.1f".format(preAnalysis.integratedLufs)} LUFS. Modifica los sliders o sube un archivo con presets."
                 )
             }
         } catch (t: Throwable) {
@@ -233,25 +200,24 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(
                     isProcessing = false,
-                    statusMessage = "Error en procesamiento DSP: ${t.localizedMessage ?: t.javaClass.simpleName}"
+                    statusMessage = "Error al analizar track: ${t.localizedMessage ?: t.javaClass.simpleName}"
                 )
             }
         }
     }
 
-    fun selectPreset(preset: PresetType) {
+    /**
+     * Restablece todos los parámetros a 0 dB (plano/neutro).
+     */
+    fun resetToFlatSettings() {
         val raw = _uiState.value.rawTrack ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(selectedPreset = preset, isProcessing = true, isCustomProfileActive = false) }
-            applyTrackAndMaster(raw, preset, autoCalibrate = true)
-        }
-    }
-
-    fun autoCalibrate() {
-        val raw = _uiState.value.rawTrack ?: return
-        val currentPreset = _uiState.value.selectedPreset
-        viewModelScope.launch {
-            applyTrackAndMaster(raw, currentPreset, autoCalibrate = true)
+        reprocessWithSettings(MasteringSettings.CLEAN, debounceMs = 50L)
+        _uiState.update {
+            it.copy(
+                isCustomProfileActive = false,
+                customProfileName = null,
+                statusMessage = "Ajustes restablecidos a neutro (0 dB planos)"
+            )
         }
     }
 
@@ -362,10 +328,25 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateLimiterCeiling(ceilingDb: Float) {
         val curSettings = _uiState.value.settings
-        reprocessWithSettings(curSettings.copy(limiterCeilingDb = ceilingDb))
+        reprocessWithSettings(curSettings.copy(limiterCeilingDb = ceilingDb.coerceIn(-3.0f, 0.0f)))
     }
 
-    private fun reprocessWithSettings(newSettings: MasteringSettings, debounceMs: Long = 180L) {
+    fun updateLimiterThreshold(thresholdDb: Float) {
+        val curSettings = _uiState.value.settings
+        reprocessWithSettings(curSettings.copy(limiterThresholdDb = thresholdDb.coerceIn(-20.0f, 0.0f)))
+    }
+
+    fun updateStereoWidth(width: Float) {
+        val curSettings = _uiState.value.settings
+        reprocessWithSettings(curSettings.copy(stereoWidthFactor = width.coerceIn(0.5f, 2.0f)))
+    }
+
+    fun updateMonoSubFreq(freqHz: Float) {
+        val curSettings = _uiState.value.settings
+        reprocessWithSettings(curSettings.copy(monoSubFreqHz = freqHz.coerceIn(20.0f, 150.0f)))
+    }
+
+    private fun reprocessWithSettings(newSettings: MasteringSettings, debounceMs: Long = 200L) {
         val raw = _uiState.value.rawTrack ?: return
 
         // 1. Inmediatamente reflejar el valor en el estado para que los sliders y textos se muevan a 60/120fps sin lag
@@ -400,57 +381,6 @@ class MasteringViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (t: Throwable) {
                 if (t !is CancellationException) {
                     t.printStackTrace()
-                }
-            }
-        }
-    }
-
-    /**
-     * Permite ejecutar la auto-corrección en cualquier momento sobre el resultado actual.
-     */
-    fun autoCorrectCurrentMaster() {
-        val raw = _uiState.value.rawTrack ?: return
-        val currentResult = _uiState.value.result ?: return
-        val currentPreset = _uiState.value.selectedPreset
-
-        viewModelScope.launch(Dispatchers.Default) {
-            _uiState.update {
-                it.copy(
-                    isProcessing = true,
-                    statusMessage = "Midiendo máster actual y recalculando auto-corrección..."
-                )
-            }
-
-            val (correctedSettings, corrections) = dspEngine.autoCorrectSettings(
-                currentSettings = _uiState.value.settings,
-                targetPreset = currentPreset,
-                masteredAnalysis = currentResult.masteredAnalysis,
-                rawAnalysis = _uiState.value.rawAnalysis
-            )
-
-            if (corrections.isNotEmpty()) {
-                val (mastered, result) = dspEngine.processTrack(
-                    inputTrack = raw,
-                    settings = correctedSettings,
-                    precomputedRawAnalysis = _uiState.value.rawAnalysis
-                )
-                audioPlayer?.updateMasteredTrack(mastered)
-                _uiState.update {
-                    it.copy(
-                        masteredTrack = mastered,
-                        masteredAnalysis = result.masteredAnalysis,
-                        settings = correctedSettings,
-                        result = result,
-                        isProcessing = false,
-                        statusMessage = "Auto-corrección completada (${corrections.size} correcciones aplicadas)"
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        isProcessing = false,
-                        statusMessage = "El máster ya cumple exactamente los objetivos acústicos"
-                    )
                 }
             }
         }

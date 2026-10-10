@@ -108,10 +108,7 @@ fun MasteringStudioScreen(
                 actions = {
                     // Demo Beat loader button
                     IconButton(
-                        onClick = {
-                            val isOldSchool = uiState.selectedPreset != PresetType.DEMBOW_OSCURO
-                            viewModel.loadDemoBeat(!isOldSchool)
-                        },
+                        onClick = { viewModel.loadDemoBeat() },
                         modifier = Modifier.testTag("load_demo_button")
                     ) {
                         Icon(
@@ -234,69 +231,27 @@ fun MasteringStudioScreen(
                 )
             }
 
-            // 1. Presets Selector & Auto-calibration
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "PRESETS INTELIGENTES DE GÉNERO",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF94A3B8),
-                        letterSpacing = 1.sp
-                    )
-
-                    // Auto-Calibrate button
-                    FilledTonalButton(
-                        onClick = { viewModel.autoCalibrate() },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFF1E293B),
-                            contentColor = Color(0xFF00E5FF)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(30.dp).testTag("auto_calibrate_button")
-                    ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("AUTO-CALIBRAR", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(PresetType.values()) { preset ->
-                        val isSelected = uiState.selectedPreset == preset
-                        PresetCard(
-                            preset = preset,
-                            isSelected = isSelected,
-                            onSelect = { viewModel.selectPreset(preset) },
-                            modifier = Modifier.testTag("preset_${preset.name.lowercase()}")
-                        )
-                    }
-                }
-            }
-
-            // 2. Real-time A/B Testing module with instant bypass toggle
-            AbToggleSwitch(
-                isBypassActive = uiState.isBypassActive,
-                onToggleBypass = { viewModel.toggleBypass() },
-                modifier = Modifier.testTag("ab_switch_container")
+            // 1. Análisis Completo del Track (aparece al cargar pista o demo)
+            CompleteTrackAnalysisCard(
+                track = uiState.rawTrack,
+                analysis = uiState.rawAnalysis,
+                onDownloadAnalysis = { viewModel.exportAnalysisAndParameters(context) }
             )
 
-            // Custom External Profile (.txt / .json) & Acoustic Analysis Export
+            // 2. Cargar Presets desde Archivo (.txt / .json) o Descargar Plantilla
             CustomProfileCard(
                 isCustomProfileActive = uiState.isCustomProfileActive,
                 customProfileName = uiState.customProfileName,
                 onImportProfile = { profilePickerLauncher.launch("*/*") },
                 onExportAnalysis = { viewModel.exportAnalysisAndParameters(context) },
                 onDownloadTemplate = { viewModel.downloadProfileTemplate(context) }
+            )
+
+            // 3. Comparación A/B en Vivo (Master vs Bypass Raw)
+            AbToggleSwitch(
+                isBypassActive = uiState.isBypassActive,
+                onToggleBypass = { viewModel.toggleBypass() },
+                modifier = Modifier.testTag("ab_switch_container")
             )
 
             // 3. Tab Switcher (Spectrum Visualizer vs EQ Curve vs Multiband Compressor)
@@ -372,20 +327,26 @@ fun MasteringStudioScreen(
             StudioMetersRack(
                 rawAnalysis = uiState.rawAnalysis,
                 masteredAnalysis = uiState.masteredAnalysis,
-                targetLufs = uiState.selectedPreset.targetLufs,
+                targetLufs = -14.0f,
                 isBypass = uiState.isBypassActive,
                 peakL = uiState.livePeakL,
                 peakR = uiState.livePeakR
             )
 
-            // 5. Quick Hardware Sliders Rack
+            // 5. Controles de Hardware y Sliders Manuales (Sin presets)
             MasteringSlidersRack(
                 settings = uiState.settings,
                 onSubGainChanged = { gain -> viewModel.updateEqBandGain("sub", gain) },
+                onKickGainChanged = { gain -> viewModel.updateEqBandGain("kick", gain) },
+                onMudGainChanged = { gain -> viewModel.updateEqBandGain("mud", gain) },
                 onSnareGainChanged = { gain -> viewModel.updateEqBandGain("snare", gain) },
+                onAirGainChanged = { gain -> viewModel.updateEqBandGain("air", gain) },
                 onSaturationChanged = { drive -> viewModel.updateSaturationDrive(drive) },
+                onStereoWidthChanged = { width -> viewModel.updateStereoWidth(width) },
+                onMonoSubChanged = { freq -> viewModel.updateMonoSubFreq(freq) },
+                onMakeupGainChanged = { gain -> viewModel.updateMakeupGain(gain) },
                 onLimiterCeilingChanged = { ceil -> viewModel.updateLimiterCeiling(ceil) },
-                onAutoCorrect = { viewModel.autoCorrectCurrentMaster() }
+                onResetToFlat = { viewModel.resetToFlatSettings() }
             )
 
             // 6. Playback Controller
@@ -559,64 +520,6 @@ fun MasteringStudioScreen(
 }
 
 @Composable
-private fun PresetCard(
-    preset: PresetType,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .width(180.dp)
-            .clickable(onClick = onSelect)
-            .border(
-                1.5.dp,
-                if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
-                RoundedCornerShape(10.dp)
-            ),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFF132238) else Color(0xFF0E141E)
-        )
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = preset.targetLufs.toString() + " LUFS",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFFBBF24)
-                )
-                if (isSelected) {
-                    Box(modifier = Modifier.size(6.dp).background(Color(0xFF00E5FF), CircleShape))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = preset.title,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = preset.subtitle,
-                fontSize = 10.sp,
-                color = Color(0xFF94A3B8),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
 private fun StudioMetersRack(
     rawAnalysis: com.example.model.AudioAnalysis,
     masteredAnalysis: com.example.model.AudioAnalysis,
@@ -716,10 +619,16 @@ private fun LoudnessPill(
 private fun MasteringSlidersRack(
     settings: com.example.model.MasteringSettings,
     onSubGainChanged: (Float) -> Unit,
+    onKickGainChanged: (Float) -> Unit,
+    onMudGainChanged: (Float) -> Unit,
     onSnareGainChanged: (Float) -> Unit,
+    onAirGainChanged: (Float) -> Unit,
     onSaturationChanged: (Float) -> Unit,
+    onStereoWidthChanged: (Float) -> Unit,
+    onMonoSubChanged: (Float) -> Unit,
+    onMakeupGainChanged: (Float) -> Unit,
     onLimiterCeilingChanged: (Float) -> Unit,
-    onAutoCorrect: () -> Unit
+    onResetToFlat: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -728,69 +637,167 @@ private fun MasteringSlidersRack(
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF1E293B)))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Header with Reset button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "CONTROLES RÁPIDOS DE HARDWARE",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF94A3B8),
-                    letterSpacing = 1.sp
-                )
-                FilledTonalButton(
-                    onClick = onAutoCorrect,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = Color(0xFF1E293B),
-                        contentColor = Color(0xFF38BDF8)
+                Column {
+                    Text(
+                        text = "AJUSTES MANUALES CON SLIDERS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Modifica los parámetros para moldear el sonido",
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+
+                // Reset to flat button
+                OutlinedButton(
+                    onClick = onResetToFlat,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8)),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF334155))
                     ),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.height(26.dp).testTag("auto_correct_master_button")
+                    modifier = Modifier.height(28.dp).testTag("reset_flat_button")
                 ) {
-                    Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("AUTO-CORREGIR", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("PLANO (0 dB)", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 1. Sub-Bass 40-60Hz
+            // Section A: Ecualizador 5 Bandas
+            Text(
+                text = "ECUALIZADOR DE 5 BANDAS",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF00E5FF),
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
             SliderParamRow(
-                label = "Sub-Bass 45-60Hz",
-                valueText = "${if (settings.subBassBand.gainDb >= 0) "+" else ""}%.1f dB".format(settings.subBassBand.gainDb),
+                label = "Sub-Bass Redondo (50 Hz)",
                 value = settings.subBassBand.gainDb,
                 valueRange = -6.0f..12.0f,
-                onValueChange = onSubGainChanged
+                formatter = { "${if (it >= 0) "+" else ""}%.1f dB".format(it) },
+                onValueChange = onSubGainChanged,
+                testTag = "sub_gain_slider"
             )
 
-            // 2. Snare Presence / Attack 3.5kHz
             SliderParamRow(
-                label = "Pegada / Redoblante (3.5 kHz)",
-                valueText = "${if (settings.snarePresenceBand.gainDb >= 0) "+" else ""}%.1f dB".format(settings.snarePresenceBand.gainDb),
+                label = "Pegada de Bombo / Kick (85 Hz)",
+                value = settings.kickPunchBand.gainDb,
+                valueRange = -6.0f..12.0f,
+                formatter = { "${if (it >= 0) "+" else ""}%.1f dB".format(it) },
+                onValueChange = onKickGainChanged,
+                testTag = "kick_gain_slider"
+            )
+
+            SliderParamRow(
+                label = "Limpieza Mud Scoop (280 Hz)",
+                value = settings.mudCutBand.gainDb,
+                valueRange = -6.0f..6.0f,
+                formatter = { "${if (it >= 0) "+" else ""}%.1f dB".format(it) },
+                onValueChange = onMudGainChanged,
+                testTag = "mud_gain_slider"
+            )
+
+            SliderParamRow(
+                label = "Mordida de Redoblante (3.2 kHz)",
                 value = settings.snarePresenceBand.gainDb,
                 valueRange = -6.0f..12.0f,
-                onValueChange = onSnareGainChanged
+                formatter = { "${if (it >= 0) "+" else ""}%.1f dB".format(it) },
+                onValueChange = onSnareGainChanged,
+                testTag = "snare_gain_slider"
             )
 
-            // 3. Tube Saturation Drive
+            SliderParamRow(
+                label = "Brillo y Aire Air Shelf (11 kHz)",
+                value = settings.airShelfBand.gainDb,
+                valueRange = -6.0f..12.0f,
+                formatter = { "${if (it >= 0) "+" else ""}%.1f dB".format(it) },
+                onValueChange = onAirGainChanged,
+                testTag = "air_gain_slider"
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Section B: Color Analógico & Estéreo
+            Text(
+                text = "COLOR ANALÓGICO & ESPACIO ESTÉREO",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFBBF24),
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
             SliderParamRow(
                 label = "Saturación Armónica Analógica",
-                valueText = "${(settings.saturationDrive.coerceIn(0f, 1f) * 100).toInt()}%",
                 value = settings.saturationDrive,
                 valueRange = 0.0f..1.0f,
-                onValueChange = onSaturationChanged
+                formatter = { "${(it * 100).toInt()}%" },
+                onValueChange = onSaturationChanged,
+                testTag = "saturation_slider"
             )
 
-            // 4. Limiter Ceiling
             SliderParamRow(
-                label = "Techo Limitador True-Peak",
-                valueText = "%.2f dBTP".format(settings.limiterCeilingDb),
+                label = "Apertura de Imagen Estéreo",
+                value = settings.stereoWidthFactor,
+                valueRange = 0.5f..2.0f,
+                formatter = { "%.2fx".format(it) },
+                onValueChange = onStereoWidthChanged,
+                testTag = "stereo_width_slider"
+            )
+
+            SliderParamRow(
+                label = "Corte Sub en Mono (Mono-Maker)",
+                value = settings.monoSubFreqHz,
+                valueRange = 20.0f..150.0f,
+                formatter = { "${it.toInt()} Hz" },
+                onValueChange = onMonoSubChanged,
+                testTag = "mono_sub_slider"
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Section C: Limitador True-Peak
+            Text(
+                text = "LIMITADOR INTELIGENTE TRUE-PEAK",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF38BDF8),
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
+            SliderParamRow(
+                label = "Ganancia Makeup de Entrada",
+                value = settings.makeupGainDb,
+                valueRange = 0.0f..12.0f,
+                formatter = { "+%.1f dB".format(it) },
+                onValueChange = onMakeupGainChanged,
+                testTag = "makeup_gain_slider"
+            )
+
+            SliderParamRow(
+                label = "Techo de Seguridad True-Peak",
                 value = settings.limiterCeilingDb,
                 valueRange = -3.0f..0.0f,
-                onValueChange = onLimiterCeilingChanged
+                formatter = { "%.2f dBTP".format(it) },
+                onValueChange = onLimiterCeilingChanged,
+                testTag = "limiter_ceiling_slider"
             )
         }
     }
@@ -799,32 +806,48 @@ private fun MasteringSlidersRack(
 @Composable
 private fun SliderParamRow(
     label: String,
-    valueText: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit
+    formatter: (Float) -> String,
+    onValueChange: (Float) -> Unit,
+    testTag: String = ""
 ) {
-    var localValue by remember(value) { mutableStateOf(value.coerceIn(valueRange.start, valueRange.endInclusive)) }
+    val safeStart = if (value.isNaN()) valueRange.start else value.coerceIn(valueRange.start, valueRange.endInclusive)
+    var localValue by remember(value) { mutableStateOf(safeStart) }
 
     LaunchedEffect(value) {
-        localValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
+        val safe = if (value.isNaN()) valueRange.start else value.coerceIn(valueRange.start, valueRange.endInclusive)
+        localValue = safe
     }
 
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+    Column(modifier = Modifier.padding(vertical = 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, fontSize = 11.sp, color = Color(0xFFCBD5E1))
-            Text(valueText, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
+            Text(
+                text = formatter(localValue),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF00E5FF),
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+            )
         }
         Slider(
             value = localValue.coerceIn(valueRange.start, valueRange.endInclusive),
             onValueChange = {
-                localValue = it.coerceIn(valueRange.start, valueRange.endInclusive)
+                val clamped = if (it.isNaN()) valueRange.start else it.coerceIn(valueRange.start, valueRange.endInclusive)
+                localValue = clamped
             },
             onValueChangeFinished = {
-                onValueChange(localValue.coerceIn(valueRange.start, valueRange.endInclusive))
+                val clamped = localValue.coerceIn(valueRange.start, valueRange.endInclusive)
+                try {
+                    onValueChange(clamped)
+                } catch (t: Throwable) {
+                    t.printStackTrace()
+                }
             },
             valueRange = valueRange,
             colors = SliderDefaults.colors(
@@ -832,7 +855,9 @@ private fun SliderParamRow(
                 activeTrackColor = Color(0xFF0284C7),
                 inactiveTrackColor = Color(0xFF1E293B)
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
         )
     }
 }

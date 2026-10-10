@@ -19,7 +19,9 @@ class RealtimeAudioPlayer(
     private val onMeterUpdate: (peakL: Float, peakR: Float) -> Unit,
     private val onPlaybackStateChanged: (isPlaying: Boolean) -> Unit
 ) {
+    @Volatile
     private var rawTrack: AudioTrackData? = null
+    @Volatile
     private var masteredTrack: AudioTrackData? = null
 
     @Volatile
@@ -32,10 +34,16 @@ class RealtimeAudioPlayer(
     @Volatile
     var isLooping: Boolean = true
 
+    @Volatile
     private var currentFrameIndex = 0
+
+    private val audioLock = Any()
     private var audioTrack: AudioTrack? = null
     private var playbackJob: Job? = null
-    private val playerScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        android.util.Log.e("RealtimeAudioPlayer", "Audio player caught exception", throwable)
+    }
+    private val playerScope = CoroutineScope(Dispatchers.Default + SupervisorJob() + exceptionHandler)
 
     fun setTracks(raw: AudioTrackData, mastered: AudioTrackData?) {
         this.rawTrack = raw
@@ -84,59 +92,72 @@ class RealtimeAudioPlayer(
         onPlaybackStateChanged(true)
 
         playbackJob = playerScope.launch {
-            val shortChunkSize = 2048
-            val byteBuffer = ByteBuffer.allocate(shortChunkSize * 2).order(ByteOrder.LITTLE_ENDIAN)
-            val totalFrames = raw.samples.size / channels
+            try {
+                val shortChunkSize = 2048
+                val byteBuffer = ByteBuffer.allocate(shortChunkSize * 2).order(ByteOrder.LITTLE_ENDIAN)
 
-            while (isActive && isPlaying) {
-                val activeTrack = if (isBypassActive || masteredTrack == null) raw else masteredTrack!!
-                val samples = activeTrack.samples
+                while (isActive && isPlaying) {
+                    val currentRaw = rawTrack ?: break
+                    val currentMastered = masteredTrack
+                    val activeTrack = if (isBypassActive || currentMastered == null) currentRaw else currentMastered
+                    val samples = activeTrack.samples
+                    val trackFrames = samples.size / channels
 
-                byteBuffer.clear()
-                var peakL = 0.0f
-                var peakR = 0.0f
+                    byteBuffer.clear()
+                    var peakL = 0.0f
+                    var peakR = 0.0f
 
-                var samplesWritten = 0
-                while (samplesWritten < shortChunkSize && currentFrameIndex < totalFrames) {
-                    val frameIdx = currentFrameIndex * channels
-                    val l = samples.getOrElse(frameIdx) { 0f }.coerceIn(-1.0f, 1.0f)
-                    val r = if (channels > 1) {
-                        samples.getOrElse(frameIdx + 1) { 0f }.coerceIn(-1.0f, 1.0f)
-                    } else l
+                    var samplesWritten = 0
+                    while (samplesWritten < shortChunkSize && currentFrameIndex < trackFrames) {
+                        val frameIdx = currentFrameIndex * channels
+                        val l = samples.getOrElse(frameIdx) { 0f }.coerceIn(-1.0f, 1.0f)
+                        val r = if (channels > 1) {
+                            samples.getOrElse(frameIdx + 1) { 0f }.coerceIn(-1.0f, 1.0f)
+                        } else l
 
-                    val absL = abs(l)
-                    val absR = abs(r)
-                    if (absL > peakL) peakL = absL
-                    if (absR > peakR) peakR = absR
+                        val absL = abs(l)
+                        val absR = abs(r)
+                        if (absL > peakL) peakL = absL
+                        if (absR > peakR) peakR = absR
 
-                    byteBuffer.putShort((l * 32767.0f).toInt().toShort())
-                    if (channels > 1) {
-                        byteBuffer.putShort((r * 32767.0f).toInt().toShort())
-                        samplesWritten += 2
-                    } else {
-                        samplesWritten += 1
+                        byteBuffer.putShort((l * 32767.0f).toInt().toShort())
+                        if (channels > 1) {
+                            byteBuffer.putShort((r * 32767.0f).toInt().toShort())
+                            samplesWritten += 2
+                        } else {
+                            samplesWritten += 1
+                        }
+
+                        currentFrameIndex++
                     }
 
-                    currentFrameIndex++
-                }
-
-                if (byteBuffer.position() > 0) {
-                    audioTrack?.write(byteBuffer.array(), 0, byteBuffer.position())
-                }
-
-                val currentSec = currentFrameIndex.toFloat() / sampleRate
-                val totalSec = totalFrames.toFloat() / sampleRate
-                val progress = if (totalFrames > 0) currentFrameIndex.toFloat() / totalFrames else 0f
-                onPlaybackPosition(currentSec, totalSec, progress)
-                onMeterUpdate(peakL, peakR)
-
-                if (currentFrameIndex >= totalFrames) {
-                    if (isLooping) {
-                        currentFrameIndex = 0
-                    } else {
-                        pause()
-                        break
+                    if (byteBuffer.position() > 0 && isPlaying) {
+                        synchronized(audioLock) {
+                            val track = audioTrack
+                            if (track != null && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                                track.write(byteBuffer.array(), 0, byteBuffer.position())
+                            }
+                        }
                     }
+
+                    val currentSec = currentFrameIndex.toFloat() / sampleRate
+                    val totalSec = trackFrames.toFloat() / sampleRate
+                    val progress = if (trackFrames > 0) currentFrameIndex.toFloat() / trackFrames else 0f
+                    onPlaybackPosition(currentSec, totalSec, progress)
+                    onMeterUpdate(peakL, peakR)
+
+                    if (currentFrameIndex >= trackFrames) {
+                        if (isLooping) {
+                            currentFrameIndex = 0
+                        } else {
+                            pause()
+                            break
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                if (t !is CancellationException) {
+                    android.util.Log.e("RealtimeAudioPlayer", "Playback loop error", t)
                 }
             }
         }
@@ -147,11 +168,15 @@ class RealtimeAudioPlayer(
         onPlaybackStateChanged(false)
         playbackJob?.cancel()
         playbackJob = null
-        try {
-            audioTrack?.stop()
-            audioTrack?.release()
-        } catch (_: Exception) {}
-        audioTrack = null
+        synchronized(audioLock) {
+            try {
+                audioTrack?.pause()
+                audioTrack?.flush()
+                audioTrack?.stop()
+                audioTrack?.release()
+            } catch (_: Exception) {}
+            audioTrack = null
+        }
         onMeterUpdate(0f, 0f)
     }
 

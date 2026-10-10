@@ -28,36 +28,56 @@ data class CompressorBand(
 )
 
 data class MasteringSettings(
-    val presetType: PresetType = PresetType.OLD_SCHOOL_PERREO,
-    // 5-Band Parametric EQ
-    val subBassBand: EqBand = EqBand("sub", "Sub-Bass", 50.0f, 3.8f, 1.2f),
-    val kickPunchBand: EqBand = EqBand("kick", "Kick Punch", 85.0f, 2.4f, 1.4f),
-    val mudCutBand: EqBand = EqBand("mud", "Mud Scoop", 280.0f, -2.2f, 1.8f),
-    val snarePresenceBand: EqBand = EqBand("snare", "Snare Bite", 3200.0f, 2.0f, 1.2f),
-    val airShelfBand: EqBand = EqBand("air", "Air Highs", 11000.0f, 1.8f, 0.7f),
+    val presetType: PresetType = PresetType.CLEAN_NEUTRAL,
+    // 5-Band Parametric EQ (Default Flat 0.0 dB)
+    val subBassBand: EqBand = EqBand("sub", "Sub-Bass", 50.0f, 0.0f, 1.2f),
+    val kickPunchBand: EqBand = EqBand("kick", "Kick Punch", 85.0f, 0.0f, 1.4f),
+    val mudCutBand: EqBand = EqBand("mud", "Mud Scoop", 280.0f, 0.0f, 1.8f),
+    val snarePresenceBand: EqBand = EqBand("snare", "Snare Bite", 3200.0f, 0.0f, 1.2f),
+    val airShelfBand: EqBand = EqBand("air", "Air Highs", 11000.0f, 0.0f, 0.7f),
 
-    // Multiband Dynamics
+    // Multiband Dynamics (Default Neutral 0 dB)
     val multibandBands: List<CompressorBand> = listOf(
-        CompressorBand("low", "Low Band (Sub & Kick)", "20 Hz - 250 Hz", 2.4f, -14.0f, 3.5f, 30.0f, 80.0f),
-        CompressorBand("mid", "Mid Band (Vocals & Snare)", "250 Hz - 4.5 kHz", 0.8f, -18.0f, 2.5f, 15.0f, 120.0f),
-        CompressorBand("high", "High Band (Air & Cymbals)", "4.5 kHz - 20 kHz", 1.6f, -16.0f, 2.0f, 10.0f, 90.0f)
+        CompressorBand("low", "Low Band (Sub & Kick)", "20 Hz - 250 Hz", 0.0f, 0.0f, 1.5f, 30.0f, 80.0f),
+        CompressorBand("mid", "Mid Band (Vocals & Snare)", "250 Hz - 4.5 kHz", 0.0f, 0.0f, 1.5f, 15.0f, 120.0f),
+        CompressorBand("high", "High Band (Air & Cymbals)", "4.5 kHz - 20 kHz", 0.0f, 0.0f, 1.2f, 10.0f, 90.0f)
     ),
 
-    // Analog Color & Dynamics
-    val saturationDrive: Float = 0.25f,
+    // Analog Color & Dynamics (Default Neutral)
+    val saturationDrive: Float = 0.0f,
     val monoSubFreqHz: Float = 90.0f,
-    val stereoWidthFactor: Float = 1.15f,
+    val stereoWidthFactor: Float = 1.0f,
 
-    // Intelligent Peak Limiter
-    val makeupGainDb: Float = 4.5f,
-    val limiterThresholdDb: Float = -7.5f,
-    val limiterCeilingDb: Float = -0.3f,
+    // Intelligent Peak Limiter (Transparent by default)
+    val makeupGainDb: Float = 0.0f,
+    val limiterThresholdDb: Float = 0.0f,
+    val limiterCeilingDb: Float = -0.2f,
     val limiterReleaseMs: Float = 60.0f,
 
-    // Metadata about self-adjustment applied
+    // Metadata about adjustments
     val isAutoCalibrated: Boolean = false,
     val autoAdjustmentLog: List<String> = emptyList()
 ) {
+    companion object {
+        val CLEAN = MasteringSettings(
+            presetType = PresetType.CLEAN_NEUTRAL,
+            subBassBand = EqBand("sub", "Sub-Bass", 50.0f, 0.0f, 1.2f),
+            kickPunchBand = EqBand("kick", "Kick Punch", 85.0f, 0.0f, 1.4f),
+            mudCutBand = EqBand("mud", "Mud Scoop", 280.0f, 0.0f, 1.8f),
+            snarePresenceBand = EqBand("snare", "Snare Bite", 3200.0f, 0.0f, 1.2f),
+            airShelfBand = EqBand("air", "Air Highs", 11000.0f, 0.0f, 0.7f),
+            saturationDrive = 0.0f,
+            monoSubFreqHz = 90.0f,
+            stereoWidthFactor = 1.0f,
+            makeupGainDb = 0.0f,
+            limiterThresholdDb = 0.0f,
+            limiterCeilingDb = -0.2f,
+            limiterReleaseMs = 60.0f,
+            isAutoCalibrated = false,
+            autoAdjustmentLog = emptyList()
+        )
+    }
+
     fun getAllBands(): List<EqBand> = listOf(
         subBassBand,
         kickPunchBand,

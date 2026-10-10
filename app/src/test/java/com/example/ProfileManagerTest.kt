@@ -5,7 +5,12 @@ import com.example.model.AudioAnalysis
 import com.example.model.MasteringSettings
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class ProfileManagerTest {
 
     @Test
@@ -51,7 +56,10 @@ class ProfileManagerTest {
         """.trimIndent()
 
         val result = MasteringProfileManager.parseProfile(json)
-        assertTrue(result.isSuccess)
+        if (result.isFailure) {
+            result.exceptionOrNull()?.printStackTrace()
+        }
+        assertTrue("Parsing failed: ${result.exceptionOrNull()?.message}", result.isSuccess)
         val settings = result.getOrThrow()
 
         assertEquals(5.5f, settings.subBassBand.gainDb, 0.01f)

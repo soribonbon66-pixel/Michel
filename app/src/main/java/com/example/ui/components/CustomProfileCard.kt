@@ -70,10 +70,10 @@ fun CustomProfileCard(
                     color = if (isCustomProfileActive) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF1E293B)
                 ) {
                     Text(
-                        text = if (isCustomProfileActive) "PERFIL ACTIVO" else "PRESET EN USO",
+                        text = if (isCustomProfileActive) "ARCHIVO APLICADO" else "AJUSTES MANUALES (PLANO)",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isCustomProfileActive) Color(0xFF00E5FF) else Color(0xFF64748B),
+                        color = if (isCustomProfileActive) Color(0xFF00E5FF) else Color(0xFF94A3B8),
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -82,7 +82,7 @@ fun CustomProfileCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Carga un archivo con tus propios valores para aplicarlos al máster sin presets, o descarga el análisis acústico del track cargado.",
+                text = "Aplica ajustes al máster subiendo un archivo con tus presets (.txt o .json), o descarga la plantilla editable para crear el tuyo.",
                 fontSize = 11.sp,
                 color = Color(0xFF94A3B8),
                 lineHeight = 15.sp
