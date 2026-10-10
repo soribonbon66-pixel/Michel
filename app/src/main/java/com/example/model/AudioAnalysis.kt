@@ -33,13 +33,13 @@ data class AudioAnalysis(
     val airPercent: Float get() = airEnergy * 100f
 
     val formattedIntegratedLufs: String
-        get() = if (isSilent || integratedLufs <= -70.0f) "N/D" else "%.1f LUFS".format(integratedLufs)
+        get() = if (integratedLufs <= -70.0f || (isSilent && integratedLufs <= -69.0f)) "N/D" else "%.2f LUFS".format(java.util.Locale.US, integratedLufs)
 
     val formattedShortTermLufs: String
-        get() = if (isSilent || shortTermMaxLufs <= -70.0f) "N/D" else "%.1f LUFS".format(shortTermMaxLufs)
+        get() = if (shortTermMaxLufs <= -70.0f || (isSilent && shortTermMaxLufs <= -69.0f)) "N/D" else "%.2f LUFS".format(java.util.Locale.US, shortTermMaxLufs)
 
     val formattedMomentaryLufs: String
-        get() = if (isSilent || momentaryMaxLufs <= -70.0f) "N/D" else "%.1f LUFS".format(momentaryMaxLufs)
+        get() = if (momentaryMaxLufs <= -70.0f || (isSilent && momentaryMaxLufs <= -69.0f)) "N/D" else "%.2f LUFS".format(java.util.Locale.US, momentaryMaxLufs)
 
     val formattedSamplePeak: String
         get() = if (isSilent) "-∞ dBFS" else "%.2f dBFS".format(samplePeakDbfs)

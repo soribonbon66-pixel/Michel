@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- READ_MEDIA_AUDIO: Android 13+ para acceder a archivos de audio -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- READ_EXTERNAL_STORAGE y WRITE_EXTERNAL_STORAGE con maxSdkVersion por compatibilidad con versiones antiguas de Android -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 

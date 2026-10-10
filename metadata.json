@@ -1,6 +1,6 @@
 {
   "name": "Reggaeton Master DSP",
-  "description": "Suite profesional de masterización y ecualización de audio para productores con análisis LUFS, presets urbanos autocalibrados y exportación WAV.",
+  "description": "Suite profesional de masterización y ecualización de audio para productores con análisis LUFS conforme a ITU-R BS.1770-4, espectro FFT y exportación WAV.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

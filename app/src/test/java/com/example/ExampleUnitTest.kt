@@ -279,11 +279,11 @@ class ExampleUnitTest {
         val sampleRate = 48000
         val channels = 2
         // Generar una señal periódica con dinámica
-        val totalFrames = sampleRate * 5 // 5 segundos
+        val totalFrames = sampleRate * 6 // 6 segundos
         val samples = FloatArray(totalFrames * channels)
 
         for (i in 0 until totalFrames) {
-            val envelope = if (i < sampleRate * 2) 0.5f else 0.1f // Bloque alto y bloque bajo
+            val envelope = if (i < (sampleRate * 3.5).toInt()) 0.5f else 0.1f // Bloque alto >= 3s para cubrir ventana short-term
             val s = envelope * sin(2.0 * Math.PI * 500.0 * i / sampleRate).toFloat()
             samples[i * 2] = s
             samples[i * 2 + 1] = s
