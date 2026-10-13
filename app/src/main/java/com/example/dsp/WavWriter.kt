@@ -16,7 +16,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * High-fidelity 16-bit / 24-bit PCM WAV encoder & exporter.
+ * High-fidelity 24-bit PCM WAV exporter.
  * Writes standard RIFF WAV files directly to internal/external storage and MediaStore.
  */
 object WavWriter {
@@ -31,7 +31,9 @@ object WavWriter {
             val sampleRate = audioTrack.sampleRate
             val channels = audioTrack.channels
             val samples = audioTrack.samples
-            val bitsPerSample = 16
+            // Export the mastered signal as 24-bit PCM. This is a common
+            // delivery format and preserves more quantization resolution than 16-bit.
+            val bitsPerSample = 24
             val bytesPerSample = bitsPerSample / 8
             val byteRate = sampleRate * channels * bytesPerSample
             val blockAlign = channels * bytesPerSample
@@ -80,10 +82,10 @@ object WavWriter {
 
                 stream.write(header.array())
 
-                // Convert 32-bit floats to 16-bit PCM with TPDF dither
+                // Convert 32-bit float processing samples to 24-bit PCM with TPDF dither
                 val chunkBufferSize = 4096
-                val pcmBuffer = ByteBuffer.allocate(chunkBufferSize * 2).order(ByteOrder.LITTLE_ENDIAN)
-                val rnd = java.util.Random(1337)
+                val pcmBuffer = ByteBuffer.allocate(chunkBufferSize * bytesPerSample).order(ByteOrder.LITTLE_ENDIAN)
+                val rnd = java.util.Random()
 
                 var i = 0
                 while (i < samples.size) {
@@ -91,12 +93,16 @@ object WavWriter {
                     val toProcess = minOf(chunkBufferSize, samples.size - i)
                     for (k in 0 until toProcess) {
                         val sample = samples[i + k].coerceIn(-1.0f, 1.0f)
-                        // Triangular Probability Density Function (TPDF) dither for audio purity
-                        val dither = (rnd.nextFloat() - rnd.nextFloat()) / 32768.0f
-                        val intSample = ((sample + dither) * 32767.0f).toInt().coerceIn(-32768, 32767).toShort()
-                        pcmBuffer.putShort(intSample)
+                        // TPDF dither in units of one 24-bit quantization step.
+                        val ditherLsb = rnd.nextFloat() - rnd.nextFloat()
+                        val scaled = sample.toDouble() * 8388607.0 + ditherLsb.toDouble()
+                        val intSample = kotlin.math.round(scaled).toInt().coerceIn(-8388608, 8388607)
+                        // Signed 24-bit PCM, little-endian two's complement.
+                        pcmBuffer.put((intSample and 0xFF).toByte())
+                        pcmBuffer.put((intSample shr 8 and 0xFF).toByte())
+                        pcmBuffer.put((intSample shr 16 and 0xFF).toByte())
                     }
-                    stream.write(pcmBuffer.array(), 0, toProcess * 2)
+                    stream.write(pcmBuffer.array(), 0, toProcess * bytesPerSample)
                     i += toProcess
                 }
                 stream.flush()

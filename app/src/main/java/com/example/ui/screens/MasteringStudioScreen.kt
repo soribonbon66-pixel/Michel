@@ -393,7 +393,7 @@ fun MasteringStudioScreen(
                     ) {
                         CircularProgressIndicator(color = Color(0xFF00E5FF))
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Aplicando dither TPDF a 16-bit 44.1kHz...", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                        Text("Aplicando dither TPDF y exportando WAV PCM de 24 bits...", fontSize = 12.sp, color = Color(0xFF94A3B8))
                     }
                 },
                 containerColor = Color(0xFF0F1723)

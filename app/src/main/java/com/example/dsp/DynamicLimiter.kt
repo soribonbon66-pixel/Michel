@@ -1,10 +1,20 @@
 package com.example.dsp
 
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.log10
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 
 /**
- * Mastering Brickwall Limiter with Lookahead, Soft-Knee, and Dynamic Release.
- * Prevents inter-sample distortion and true-peak overs while pushing commercial loudness.
+ * Stereo-linked lookahead limiter.
+ *
+ * The audio path is delayed by lookaheadSamples. A monotonic deque tracks the
+ * maximum linked-stereo peak over that same window, so the gain applied to the
+ * delayed frame is informed by peaks occurring up to lookaheadMs in its future.
+ * Attack is immediate (the point of lookahead); release is smoothed to avoid
+ * abrupt gain pumping. Output is hard-bounded to the configured ceiling.
  */
 class DynamicLimiter(
     private var sampleRate: Float = 44100f,
@@ -13,17 +23,25 @@ class DynamicLimiter(
     private var releaseMs: Float = 50.0f,
     private var lookaheadMs: Float = 3.0f
 ) {
-    private var lookaheadSamples = (lookaheadMs * sampleRate / 1000f).toInt().coerceIn(16, 512)
-    private var delayBufferL = FloatArray(lookaheadSamples)
-    private var delayBufferR = FloatArray(lookaheadSamples)
+    var latencyFrames: Int = calculateLookahead(sampleRate, lookaheadMs)
+        private set
+
+    private var delayBufferL = FloatArray(latencyFrames)
+    private var delayBufferR = FloatArray(latencyFrames)
     private var delayIndex = 0
 
-    private var currentEnvelope = 0.0f
-    private var releaseCoeff = exp(-1.0f / (releaseMs * 0.001f * sampleRate))
-    private var attackCoeff = exp(-1.0f / (0.5f * 0.001f * sampleRate)) // 0.5ms fast attack
+    // Monotonic maximum deque, indexed by absolute input frame.
+    private var dequeCapacity = latencyFrames + 2
+    private var peakIndices = LongArray(dequeCapacity)
+    private var peakValues = FloatArray(dequeCapacity)
+    private var dequeHead = 0
+    private var dequeCount = 0
+    private var frameIndex = 0L
 
+    private var releaseCoeff = releaseCoefficient(releaseMs, sampleRate)
     private var ceilingLinear = 10.0f.pow(ceilingDb / 20.0f)
     private var thresholdLinear = 10.0f.pow(thresholdDb / 20.0f)
+    private var currentGain = 1.0f
 
     var currentGainReductionDb: Float = 0.0f
         private set
@@ -36,94 +54,100 @@ class DynamicLimiter(
         ceilingDb: Float = this.ceilingDb,
         releaseMs: Float = this.releaseMs
     ) {
-        this.sampleRate = sampleRate
-        this.thresholdDb = thresholdDb
-        this.ceilingDb = ceilingDb
-        this.releaseMs = releaseMs
-
-        lookaheadSamples = (lookaheadMs * sampleRate / 1000f).toInt().coerceIn(16, 512)
-        if (delayBufferL.size != lookaheadSamples) {
-            delayBufferL = FloatArray(lookaheadSamples)
-            delayBufferR = FloatArray(lookaheadSamples)
-            delayIndex = 0
+        val newLatency = calculateLookahead(sampleRate, lookaheadMs)
+        val latencyChanged = newLatency != latencyFrames
+        this.sampleRate = sampleRate.coerceAtLeast(8000f)
+        this.thresholdDb = thresholdDb.coerceIn(-20f, 0f)
+        this.ceilingDb = ceilingDb.coerceIn(-6f, -0.1f)
+        this.releaseMs = releaseMs.coerceIn(5f, 1000f)
+        latencyFrames = newLatency
+        if (latencyChanged) {
+            delayBufferL = FloatArray(latencyFrames)
+            delayBufferR = FloatArray(latencyFrames)
+            dequeCapacity = latencyFrames + 2
+            peakIndices = LongArray(dequeCapacity)
+            peakValues = FloatArray(dequeCapacity)
         }
-        releaseCoeff = exp(-1.0f / (releaseMs * 0.001f * sampleRate))
-        ceilingLinear = 10.0f.pow(ceilingDb / 20.0f)
-        thresholdLinear = 10.0f.pow(thresholdDb / 20.0f)
+        releaseCoeff = releaseCoefficient(this.releaseMs, this.sampleRate)
+        ceilingLinear = 10.0f.pow(this.ceilingDb / 20.0f)
+        thresholdLinear = 10.0f.pow(this.thresholdDb / 20.0f)
+        reset()
     }
 
     fun reset() {
         delayBufferL.fill(0f)
         delayBufferR.fill(0f)
         delayIndex = 0
-        currentEnvelope = 0.0f
+        peakIndices.fill(0L)
+        peakValues.fill(0f)
+        dequeHead = 0
+        dequeCount = 0
+        frameIndex = 0L
+        currentGain = 1.0f
         currentGainReductionDb = 0.0f
         maxGainReductionDb = 0.0f
     }
 
-    /**
-     * Process stereo sample pair [left, right], writes limited output back into the array.
-     */
+    /** Processes one stereo frame in-place. */
     fun processSample(samplePair: FloatArray) {
-        val inL = samplePair[0]
-        val inR = samplePair[1]
-
-        // Read delayed sample from lookahead ring buffer
+        val inL = finiteOrZero(samplePair[0])
+        val inR = finiteOrZero(samplePair[1])
         val delayedL = delayBufferL[delayIndex]
         val delayedR = delayBufferR[delayIndex]
-
-        // Store current input in delay buffer
         delayBufferL[delayIndex] = inL
         delayBufferR[delayIndex] = inR
-        delayIndex = (delayIndex + 1) % lookaheadSamples
+        delayIndex = (delayIndex + 1) % latencyFrames
 
-        // Peak detection over lookahead window
         val peak = max(abs(inL), abs(inR))
-        val targetEnv = if (peak > thresholdLinear) {
-            // Over threshold: compute required attenuation
-            thresholdLinear / peak
+        pushPeak(frameIndex, peak)
+        val oldestAllowed = frameIndex - latencyFrames
+        while (dequeCount > 0 && peakIndices[dequeHead] < oldestAllowed) {
+            dequeHead = (dequeHead + 1) % dequeCapacity
+            dequeCount--
+        }
+        val windowPeak = if (dequeCount > 0) peakValues[dequeHead] else peak
+
+        // Threshold controls when limiting begins; the ceiling remains the hard maximum.
+        val trigger = min(thresholdLinear, ceilingLinear)
+        val targetGain = if (windowPeak > trigger && windowPeak > 1e-12f) {
+            min(1.0f, min(trigger, ceilingLinear) / windowPeak)
         } else {
             1.0f
         }
 
-        // Smooth envelope follower (fast attack, smooth release)
-        if (targetEnv < currentEnvelope) {
-            currentEnvelope = attackCoeff * currentEnvelope + (1.0f - attackCoeff) * targetEnv
-        } else {
-            currentEnvelope = releaseCoeff * currentEnvelope + (1.0f - releaseCoeff) * targetEnv
-        }
+        // Immediate attack is safe here because the detector is looking ahead;
+        // release is smoothed to reduce audible pumping.
+        currentGain = if (targetGain < currentGain) targetGain
+        else releaseCoeff * currentGain + (1.0f - releaseCoeff) * targetGain
 
-        // Apply gain reduction
-        val rawGain = currentEnvelope
-        var outL = delayedL * rawGain
-        var outR = delayedR * rawGain
+        val outL = delayedL * currentGain
+        val outR = delayedR * currentGain
+        samplePair[0] = outL.coerceIn(-ceilingLinear, ceilingLinear)
+        samplePair[1] = outR.coerceIn(-ceilingLinear, ceilingLinear)
 
-        // Safe soft-clip barrier at ceiling
-        outL = softClip(outL, ceilingLinear)
-        outR = softClip(outR, ceilingLinear)
-
-        samplePair[0] = outL
-        samplePair[1] = outR
-
-        val grDb = -20.0f * log10(max(1e-4f, rawGain))
+        val grDb = (-20.0f * log10(max(1e-6f, currentGain))).coerceAtLeast(0f)
         currentGainReductionDb = grDb
-        if (grDb > maxGainReductionDb) {
-            maxGainReductionDb = grDb
-        }
+        if (grDb > maxGainReductionDb) maxGainReductionDb = grDb
+        frameIndex++
     }
 
-    /**
-     * Studio tanh-style cubic soft clipping ceiling to prevent sharp digital square-wave distortion.
-     */
-    private fun softClip(x: Float, ceiling: Float): Float {
-        val norm = x / ceiling
-        val clipped = if (norm > 1.0f) {
-            1.0f - 1.0f / (3.0f * norm)
-        } else if (norm < -1.0f) {
-            -1.0f - 1.0f / (3.0f * norm)
-        } else {
-            norm - (norm * norm * norm) / 6.0f
+    private fun pushPeak(index: Long, value: Float) {
+        while (dequeCount > 0) {
+            val tail = (dequeHead + dequeCount - 1 + dequeCapacity) % dequeCapacity
+            if (peakValues[tail] > value) break
+            dequeCount--
         }
-        return (clipped * ceiling).coerceIn(-ceiling, ceiling)
+        val tail = (dequeHead + dequeCount) % dequeCapacity
+        peakIndices[tail] = index
+        peakValues[tail] = value
+        dequeCount++
     }
+
+    private fun finiteOrZero(value: Float): Float = if (value.isFinite()) value else 0f
+
+    private fun calculateLookahead(rate: Float, ms: Float): Int =
+        (ms * rate / 1000f).toInt().coerceIn(16, 2048)
+
+    private fun releaseCoefficient(ms: Float, rate: Float): Float =
+        exp(-1.0f / (ms.coerceAtLeast(1f) * 0.001f * rate.coerceAtLeast(8000f)))
 }

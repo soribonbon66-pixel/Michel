@@ -105,16 +105,26 @@ class UrbanDspEngine {
         val saturatorL = HarmonicSaturator(settings.saturationDrive)
         val saturatorR = HarmonicSaturator(settings.saturationDrive)
 
+        val multibandCompressor = MultibandCompressor(
+            sampleRate = sampleRate,
+            bands = settings.multibandBands
+        )
+
         val limiter = DynamicLimiter(
             sampleRate = sampleRate,
             thresholdDb = settings.limiterThresholdDb,
             ceilingDb = settings.limiterCeilingDb,
             releaseMs = settings.limiterReleaseMs
         )
+        // The limiter delays audio for lookahead. Keep the tail so we can trim
+        // the latency afterwards without losing the final milliseconds of music.
+        val latencyFrames = limiter.latencyFrames
+        val renderedWithTail = FloatArray(inSamples.size + latencyFrames * channels)
 
         val makeupLinear = 10.0f.pow(settings.makeupGainDb / 20.0f)
         val pairBuffer = FloatArray(2)
         var preventedClips = 0
+        val limiterCeilingLinear = 10.0f.pow(settings.limiterCeilingDb / 20.0f)
 
         val progressStep = (totalFrames / 20).coerceAtLeast(1024)
 
@@ -152,27 +162,44 @@ class UrbanDspEngine {
                 r = pairBuffer[1]
             }
 
-            // 4. Analog Harmonic Saturation
+            // 4. Three-band dynamics (low / mid / high), linked across stereo.
+            // The complementary split recombines to the original signal before
+            // each band receives its own compression and output makeup gain.
+            if (channels > 1) {
+                pairBuffer[0] = l
+                pairBuffer[1] = r
+                multibandCompressor.processSample(pairBuffer)
+                l = pairBuffer[0]
+                r = pairBuffer[1]
+            } else {
+                pairBuffer[0] = l
+                pairBuffer[1] = l
+                multibandCompressor.processSample(pairBuffer)
+                l = pairBuffer[0]
+                r = l
+            }
+
+            // 5. Analog Harmonic Saturation
             l = saturatorL.processSample(l)
             r = saturatorR.processSample(r)
 
-            // 5. Makeup Gain into Limiter
+            // 6. Makeup Gain into Limiter
             l *= makeupLinear
             r *= makeupLinear
 
-            // 6. Dynamic True Peak Limiter
+            // 7. Lookahead limiter with linked-stereo peak detection
             pairBuffer[0] = l
             pairBuffer[1] = r
             val prePeak = max(abs(l), abs(r))
             limiter.processSample(pairBuffer)
-            val postPeak = max(abs(pairBuffer[0]), abs(pairBuffer[1]))
-            if (prePeak >= 1.0f && postPeak <= 1.0f) {
-                preventedClips++
-            }
+            // Count input frames that actually crossed the configured ceiling.
+            // Do not compare input and output frame peaks: lookahead means they
+            // refer to different points in time.
+            if (prePeak > limiterCeilingLinear) preventedClips++
 
-            outSamples[idx] = pairBuffer[0]
+            renderedWithTail[idx] = pairBuffer[0]
             if (channels > 1) {
-                outSamples[idx + 1] = pairBuffer[1]
+                renderedWithTail[idx + 1] = pairBuffer[1]
             }
 
             if (i % progressStep == 0) {
@@ -180,6 +207,20 @@ class UrbanDspEngine {
                 onProgress(i.toFloat() / totalFrames)
             }
         }
+        // Flush the lookahead delay with silence to emit the last buffered frames.
+        repeat(latencyFrames) { flushFrame ->
+            pairBuffer[0] = 0f
+            pairBuffer[1] = 0f
+            limiter.processSample(pairBuffer)
+            val flushIndex = (totalFrames + flushFrame) * channels
+            renderedWithTail[flushIndex] = pairBuffer[0]
+            if (channels > 1) renderedWithTail[flushIndex + 1] = pairBuffer[1]
+        }
+
+        // Remove the lookahead latency from the final render, preserving the
+        // original duration and avoiding both leading silence and a truncated tail.
+        val trimStart = latencyFrames * channels
+        renderedWithTail.copyInto(outSamples, 0, trimStart, trimStart + inSamples.size)
         onProgress(1.0f)
 
         val masteredTrack = inputTrack.copy(
@@ -187,11 +228,24 @@ class UrbanDspEngine {
             samples = outSamples
         )
 
-        val masteredAnalysis = LufsMeter.analyze(
+        var masteredAnalysis = LufsMeter.analyze(
             samples = outSamples,
             sampleRate = inputTrack.sampleRate,
             channels = inputTrack.channels
         )
+
+        // A sample-peak limiter alone cannot guarantee an inter-sample ceiling.
+        // Use the existing 4x true-peak meter as a final safety check. If needed,
+        // apply only the small global attenuation required, then re-measure.
+        if (!masteredAnalysis.isSilent && masteredAnalysis.truePeakDbfs > settings.limiterCeilingDb) {
+            val safetyGain = 10.0f.pow((settings.limiterCeilingDb - masteredAnalysis.truePeakDbfs) / 20.0f)
+            for (i in outSamples.indices) outSamples[i] *= safetyGain
+            masteredAnalysis = LufsMeter.analyze(
+                samples = outSamples,
+                sampleRate = inputTrack.sampleRate,
+                channels = inputTrack.channels
+            )
+        }
 
         val result = MasteringResult(
             originalAnalysis = originalAnalysis,
