@@ -14,7 +14,7 @@ class Compressor(
     releaseMs: Float
 ) {
     private val sampleRateSafe = sampleRate.coerceAtLeast(8_000)
-    private val attackCoefficient = exp(-1.0 / (attackMs.coerceAtLeast(0.1) * 0.001 * sampleRateSafe)).toFloat()
+    private val attackCoefficient = exp(-1.0 / (attackMs.coerceAtLeast(0.1f) * 0.001 * sampleRateSafe)).toFloat()
     private val releaseCoefficient = exp(-1.0 / (releaseMs.coerceAtLeast(1f) * 0.001 * sampleRateSafe)).toFloat()
     private val ratioSafe = ratio.coerceAtLeast(1f)
     private var envelope = 0f

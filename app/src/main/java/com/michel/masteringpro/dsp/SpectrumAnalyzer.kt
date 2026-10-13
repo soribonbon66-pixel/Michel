@@ -65,8 +65,9 @@ object SpectrumAnalyzer {
             windowCount++
         }
         if (windowCount > 0) {
-            for (i in powerSums.indices) powerSums[i] /= windowCount
-            for (i in chroma.indices) chroma[i] /= windowCount
+            val count = windowCount.toDouble()
+            for (i in powerSums.indices) powerSums[i] = powerSums[i] / count
+            for (i in chroma.indices) chroma[i] = chroma[i] / count
         }
         val maxPower = powerSums.maxOrNull() ?: 0.0
         val spectrumDb = FloatArray(HALF + 1) { bin ->
@@ -85,10 +86,10 @@ object SpectrumAnalyzer {
 
         return Result(
             spectrum = SpectrumData(sampleRate, spectrumDb),
-            lowBandVsReferenceDb = (low - bassReference).finiteOrZero(),
-            bodyBandVsReferenceDb = (body - bodyReference).finiteOrZero(),
-            presenceVsReferenceDb = (presence - presenceReference).finiteOrZero(),
-            airVs1kDb = (air - oneK).finiteOrZero(),
+            lowBandVsReferenceDb = (low - bassReference).toFloat().finiteOrZero(),
+            bodyBandVsReferenceDb = (body - bodyReference).toFloat().finiteOrZero(),
+            presenceVsReferenceDb = (presence - presenceReference).toFloat().finiteOrZero(),
+            airVs1kDb = (air - oneK).toFloat().finiteOrZero(),
             estimatedKey = key
         )
     }
