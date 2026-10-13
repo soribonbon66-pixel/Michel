@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-files-path name="external_files" path="." />
-    <external-path name="external_storage" path="." />
+    <external-files-path name="michel_music" path="Music/Michel/" />
+    <files-path name="app_files" path="Music/Michel/" />
     <cache-path name="cache" path="." />
-    <files-path name="files" path="." />
 </paths>

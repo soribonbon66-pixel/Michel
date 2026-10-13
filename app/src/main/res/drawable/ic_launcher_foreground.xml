@@ -4,67 +4,8 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Equalizer & Master Limiter Bars in safe 66dp zone (21 to 87) -->
-    <!-- Bar 1: Sub Bass 40-60Hz -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M27,62 h6 v18 h-6 z" />
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M27,48 h6 v11 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M27,36 h6 v9 h-6 z" />
-    <path
-        android:fillColor="#F43F5E"
-        android:pathData="M27,28 h6 v5 h-6 z" />
-
-    <!-- Bar 2: Bass / Kick Punch -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M38,55 h6 v25 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M38,40 h6 v12 h-6 z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M38,32 h6 v5 h-6 z" />
-
-    <!-- Bar 3: Center Mid/Vocals -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M49,66 h6 v14 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M49,52 h6 v11 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M49,42 h6 v7 h-6 z" />
-
-    <!-- Bar 4: Snare & Dembow Presence -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M60,52 h6 v28 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M60,38 h6 v11 h-6 z" />
-    <path
-        android:fillColor="#F43F5E"
-        android:pathData="M60,30 h6 v5 h-6 z" />
-
-    <!-- Bar 5: Highs & Air -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M71,58 h6 v22 h-6 z" />
-    <path
-        android:fillColor="#38BDF8"
-        android:pathData="M71,45 h6 v10 h-6 z" />
-    <path
-        android:fillColor="#FBBF24"
-        android:pathData="M71,38 h6 v4 h-6 z" />
-
-    <!-- Base rack accent line -->
-    <path
-        android:fillColor="#0284C7"
-        android:pathData="M24,82 h56 v3 h-56 z" />
+    <path android:fillColor="#74E6B4" android:pathData="M25,73 L25,36 L34,36 L46,53 L58,36 L67,36 L67,73 L58,73 L58,50 L47,65 L45,65 L34,50 L34,73 Z" />
+    <path android:fillColor="#68B9FF" android:pathData="M73,39 L79,39 L79,69 L73,69 Z" />
+    <path android:fillColor="#68B9FF" android:pathData="M83,29 L89,29 L89,69 L83,69 Z" />
+    <path android:fillColor="#B39DFF" android:pathData="M73,74 L89,74 L89,79 L73,79 Z" />
 </vector>

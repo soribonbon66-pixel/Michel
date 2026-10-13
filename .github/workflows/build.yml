@@ -1,67 +1,22 @@
 name: Build & Package Debug APK
 
-on:
-  push:
-    branches:
-      - main
-      - master
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
-    name: Assemble Android APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-
-      - name: Prepare build environment & debug keystore
-        run: |
-          # Ensure .env exists for the Secrets Gradle Plugin
-          if [ ! -f .env ] && [ -f .env.example ]; then
-            cp .env.example .env
-          fi
-          # Restore debug.keystore from base64 if present
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
-          fi
-          # If still missing, generate a valid debug.keystore matching debugConfig
-          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
-            echo "Generating debug.keystore for CI signing..."
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          ls -la debug.keystore
-
-      - name: Set up Gradle Cache
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
         with:
-          gradle-version: '9.3.1'
-
-      - name: Grant execute permission to Gradle wrapper
-        run: chmod +x ./gradlew
-
-      - name: Compile and assemble Debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      - name: Upload Debug APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: reggaeton-master-dsp-debug-apk
-          path: app/build/outputs/apk/debug/
-          retention-days: 14
+          name: Michel-PRO-APK
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
